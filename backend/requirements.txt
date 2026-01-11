@@ -1,0 +1,23 @@
+# Backend Dependencies
+# Updated to fix security vulnerabilities (2026-01-05)
+fastapi>=0.128.0  # Updated from 0.109.0 - fixes Starlette vulnerabilities
+uvicorn[standard]>=0.40.0  # Updated from 0.27.0
+sqlalchemy>=2.0.31
+alembic==1.13.1
+psycopg[binary]>=3.1.0
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+email-validator>=2.0.0  # Required for EmailStr type in Pydantic
+python-jose[cryptography]>=3.5.0  # Updated from 3.3.0 - fixes security vulnerabilities
+passlib[bcrypt]==1.7.4
+python-multipart>=0.0.21  # Updated from 0.0.6 - fixes security vulnerabilities
+python-dotenv==1.0.0
+anthropic>=0.34.0
+paystackapi>=2.1.3
+slowapi==0.1.9
+bleach==6.1.0
+httpx>=0.25.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+requests>=2.32.5  # Updated from 2.31.0 - fixes security vulnerabilities
+sendgrid>=6.10.0  # For email service (SendGrid provider)
