@@ -89,7 +89,9 @@ llm_evaluator.py
 fix_*.py
 
 # Other files
-requirements.txt
+# requirements.txt (keep backend/requirements.txt, ignore root-level)
+/requirements.txt
+!backend/requirements.txt
 .github/
 .husky/
 
