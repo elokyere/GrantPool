@@ -15,6 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY backend/ .
 
+# Copy evaluator modules from repo root (required for imports)
+COPY evaluator.py .
+COPY llm_evaluator.py .
+
 # Copy startup script
 COPY backend/start.sh /start.sh
 RUN chmod +x /start.sh
