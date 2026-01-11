@@ -1,0 +1,94 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.*
+backend/.env
+frontend/.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+*.log
+logs/
+*.pid
+
+# Docker
+docker-compose.override.yml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.tfvars.backup
+
+# Infrastructure
+infrastructure/.terraform/
+infrastructure/terraform.tfstate
+infrastructure/terraform.tfstate.backup
+infrastructure/*.tfvars
+infrastructure/
+
+# Documentation files
+*.md
+!README.md
+docs/
+*.MD
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Scripts (keep only essential ones if needed, or exclude all)
+scripts/
+
+# Example/utility files
+evaluator.py
+example_*.py
+llm_evaluator.py
+fix_*.py
+
+# Other files
+requirements.txt
+.github/
+.husky/
+

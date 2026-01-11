@@ -1,0 +1,616 @@
+/* Landing Page Styles - Glassy Sleek Design */
+
+.landing-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: #f5f5f5; /* Light grey background */
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle background pattern for depth */
+.landing-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* Logo removed */
+
+/* Main card with glassmorphism effect */
+.landing-card {
+  max-width: 600px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 3rem 2.5rem;
+  text-align: center;
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  position: relative;
+  z-index: 1;
+}
+
+/* Subtle inner glow */
+.landing-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 24px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Title */
+.landing-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #1e3a8a; /* Dark blue */
+  margin: 0 0 1rem 0;
+  line-height: 1.2;
+  letter-spacing: -1px;
+}
+
+/* Subtitle */
+.landing-subtitle {
+  font-size: 1.1rem;
+  color: #6b7280; /* Light grey */
+  margin: 0 0 2.5rem 0;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+/* Form */
+.landing-form {
+  margin-bottom: 1.5rem;
+}
+
+/* Input wrapper with icon */
+.input-wrapper {
+  position: relative;
+  margin-bottom: 1.5rem;
+}
+
+.search-icon {
+  position: absolute;
+  left: 1.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+/* Input field */
+.landing-input {
+  width: 100%;
+  padding: 1rem 1rem 1rem 3.25rem;
+  font-size: 1rem;
+  background: #f9fafb;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  color: #111827;
+  box-sizing: border-box;
+}
+
+.landing-input:focus {
+  outline: none;
+  border-color: #667eea;
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+.landing-input::placeholder {
+  color: #9ca3af;
+}
+
+/* Input Caption */
+.input-caption {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin: -1rem 0 1rem 0;
+  text-align: left;
+  padding-left: 0.25rem;
+}
+
+/* Error message */
+.landing-error {
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  border: 1px solid #fecaca;
+}
+
+/* CTA Button - Matching Dashboard Blue */
+.landing-cta {
+  width: 100%;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: white;
+  background-color: #007bff;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.landing-cta::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.landing-cta:hover {
+  background-color: #0056b3;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 123, 255, 0.4);
+}
+
+.landing-cta:hover::before {
+  left: 100%;
+}
+
+.landing-cta:active {
+  transform: translateY(0);
+}
+
+.landing-cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* How It Works Preview - Step-by-Step */
+.how-it-works-preview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+  padding: 2rem 1rem;
+  background: #f8f9fa;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  max-width: 180px;
+}
+
+.step-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: #007bff;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.25);
+}
+
+.step-content {
+  text-align: center;
+  width: 100%;
+}
+
+.step-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.25rem;
+}
+
+.step-description {
+  font-size: 0.875rem;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.step-arrow {
+  font-size: 1.5rem;
+  color: #6c757d;
+  font-weight: 600;
+  margin: 24px -0.5rem 0 -0.5rem;
+  flex-shrink: 0;
+}
+
+/* How It Works Container - Collapsible (Legacy - can be removed if not needed) */
+.how-it-works-container {
+  margin-bottom: 2rem;
+}
+
+.how-it-works-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: transparent;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #374151;
+  text-align: center;
+  position: relative;
+}
+
+.how-it-works-toggle:hover {
+  border-color: #667eea;
+  background: rgba(102, 126, 234, 0.02);
+}
+
+.how-it-works-toggle:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+.how-it-works-icon {
+  transition: transform 0.3s ease;
+  color: #6b7280;
+  position: absolute;
+  right: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.how-it-works-icon.expanded {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+/* Grant Assessment Engine Explanation */
+.engine-explanation {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-top: 0.75rem;
+  text-align: left;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.engine-content {
+  text-align: center;
+}
+
+.engine-pricing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  padding: 0.75rem 1.5rem;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.pricing-amount {
+  color: #667eea;
+  font-size: 1.3rem;
+}
+
+.pricing-separator {
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.pricing-time {
+  color: #374151;
+}
+
+.engine-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin: 0 0 0.75rem 0;
+}
+
+.engine-description {
+  font-size: 0.95rem;
+  color: #4b5563;
+  line-height: 1.6;
+  margin: 0 0 1rem 0;
+}
+
+.engine-description strong {
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
+.engine-features {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.engine-feature {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #374151;
+}
+
+.feature-icon {
+  color: #10b981;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* Trust Bar - Social Proof */
+.trust-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 3rem;
+  padding: 1.5rem 0;
+  margin: 1.5rem 0;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.trust-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.trust-number {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e3a8a;
+  line-height: 1.2;
+}
+
+.trust-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* Disclaimer */
+.landing-disclaimer {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin: 2rem 0 0 0;
+  font-weight: 400;
+}
+
+/* Registration form styles */
+.landing-page .card {
+  max-width: 500px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 2.5rem;
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+}
+
+.landing-page .card h2 {
+  color: #1e3a8a;
+  margin-bottom: 0.5rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.landing-page .card p {
+  color: #6b7280;
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.landing-page .form-group {
+  margin-bottom: 1.25rem;
+  text-align: left;
+}
+
+.landing-page .form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #374151;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.landing-page .form-group input {
+  width: 100%;
+  padding: 0.875rem 1rem;
+  font-size: 1rem;
+  background: #f9fafb;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  color: #111827;
+  box-sizing: border-box;
+}
+
+.landing-page .form-group input:focus {
+  outline: none;
+  border-color: #667eea;
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+.landing-page .form-group small {
+  display: block;
+  margin-top: 0.5rem;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.landing-page .btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.4);
+}
+
+.landing-page .btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+}
+
+.landing-page .btn-secondary {
+  background: #f3f4f6;
+  color: #374151;
+  border: 2px solid #e5e7eb;
+  padding: 0.875rem 2rem;
+  border-radius: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.landing-page .btn-secondary:hover {
+  background: #e5e7eb;
+  border-color: #d1d5db;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .landing-card {
+    padding: 2rem 1.5rem;
+    border-radius: 20px;
+  }
+
+  .landing-title {
+    font-size: 2rem;
+  }
+
+  .landing-subtitle {
+    font-size: 1rem;
+  }
+
+  .landing-input {
+    padding: 0.875rem 0.875rem 0.875rem 3rem;
+    font-size: 0.95rem;
+  }
+
+  .landing-cta {
+    padding: 0.875rem 1.5rem;
+    font-size: 1rem;
+  }
+
+  .how-it-works-preview {
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1.5rem 1rem;
+    align-items: center;
+  }
+
+  .step-item {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .step-arrow {
+    transform: rotate(90deg);
+    margin: 0.5rem 0;
+  }
+
+  .step-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.1rem;
+  }
+
+  .step-title {
+    font-size: 0.95rem;
+  }
+
+  .step-description {
+    font-size: 0.8rem;
+  }
+
+  .how-it-works-toggle {
+    padding: 0.875rem 1.25rem;
+    font-size: 0.95rem;
+  }
+
+  .engine-explanation {
+    padding: 1.25rem;
+  }
+
+  .engine-title {
+    font-size: 1rem;
+  }
+
+  .engine-description {
+    font-size: 0.9rem;
+  }
+
+  .engine-feature {
+    font-size: 0.85rem;
+  }
+}
+
