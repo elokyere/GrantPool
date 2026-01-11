@@ -76,6 +76,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.middleware("http")
 async def https_redirect_middleware(request: Request, call_next):
     """Redirect HTTP to HTTPS in production."""
+    # Skip HTTPS redirect for health checks (internal monitoring uses HTTP)
+    if request.url.path == "/health":
+        return await call_next(request)
+    
     if not settings.DEBUG and request.url.scheme != "https":
         # Redirect to HTTPS
         https_url = str(request.url).replace("http://", "https://", 1)
