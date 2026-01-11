@@ -83,9 +83,9 @@ test_*.py
 scripts/
 
 # Example/utility files
-evaluator.py
+# evaluator.py - Required for application, keep in repo
 example_*.py
-llm_evaluator.py
+# llm_evaluator.py - Required for application, keep in repo
 fix_*.py
 
 # Other files
