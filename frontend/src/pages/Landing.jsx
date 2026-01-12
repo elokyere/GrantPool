@@ -259,18 +259,6 @@ function Landing() {
           </button>
         </form>
 
-        {/* Trust Bar - Social Proof */}
-        <div className="trust-bar">
-          <div className="trust-stat">
-            <span className="trust-number">3,400+</span>
-            <span className="trust-label">grants analyzed this month</span>
-          </div>
-          <div className="trust-stat">
-            <span className="trust-number">12,000+</span>
-            <span className="trust-label">hours of manual research saved</span>
-          </div>
-        </div>
-
         <p className="landing-disclaimer">
           Get your first assessment free. No credit card required.
         </p>

@@ -23,14 +23,15 @@ def verify_paystack_signature(payload: bytes, signature: str) -> bool:
     """
     Verify Paystack webhook signature using HMAC SHA512.
     
-    Paystack signs webhooks with HMAC SHA512 using the secret key.
+    Paystack signs webhooks with HMAC SHA512 using the Secret Key (same as API key).
+    Note: Paystack does NOT use a separate webhook secret - it uses PAYSTACK_SECRET_KEY.
     """
-    if not settings.PAYSTACK_WEBHOOK_SECRET:
+    if not settings.PAYSTACK_SECRET_KEY:
         return False
     
-    # Paystack uses HMAC SHA512
+    # Paystack uses HMAC SHA512 with the Secret Key (not a separate webhook secret)
     computed_signature = hmac.new(
-        settings.PAYSTACK_WEBHOOK_SECRET.encode('utf-8'),
+        settings.PAYSTACK_SECRET_KEY.encode('utf-8'),
         payload,
         hashlib.sha512
     ).hexdigest()
@@ -55,10 +56,10 @@ async def paystack_webhook(
             detail="Missing x-paystack-signature header"
         )
     
-    if not settings.PAYSTACK_WEBHOOK_SECRET:
+    if not settings.PAYSTACK_SECRET_KEY:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Webhook secret not configured"
+            detail="Paystack secret key not configured"
         )
     
     body = await request.body()
