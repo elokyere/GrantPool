@@ -60,6 +60,8 @@ function Dashboard() {
         return []
       }
     },
+    placeholderData: [], // Ensure React Query always has an array
+    initialData: [], // Set initial data to empty array
   })
 
   const { data: evaluations, isLoading: evaluationsLoading } = useQuery({
@@ -82,6 +84,8 @@ function Dashboard() {
         return []
       }
     },
+    placeholderData: [], // Ensure React Query always has an array
+    initialData: [], // Set initial data to empty array
   })
 
   // Get single evaluation if ID provided
@@ -132,6 +136,8 @@ function Dashboard() {
         return []
       }
     },
+    placeholderData: [], // Ensure React Query always has an array
+    initialData: [], // Set initial data to empty array
   })
 
   // Mutation to extract grant data from URL (for review/edit before evaluation)
