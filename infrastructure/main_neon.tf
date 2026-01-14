@@ -390,7 +390,8 @@ resource "digitalocean_app" "grantpool" {
 
       env {
         key   = "VITE_API_URL"
-        value = var.domain != "" ? "https://${var.domain}/api/v1" : (var.app_platform_url != "" ? "https://${var.app_platform_url}/api/v1" : "https://${var.project_name}-${var.environment}.ondigitalocean.app/api/v1")
+        # Note: Do NOT include /api/v1 here - frontend code already includes it in all API calls
+        value = var.domain != "" ? "https://${var.domain}" : (var.app_platform_url != "" ? "https://${var.app_platform_url}" : "https://${var.project_name}-${var.environment}.ondigitalocean.app")
       }
 
       env {

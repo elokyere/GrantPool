@@ -90,5 +90,6 @@ function App() {
   )
 }
 
+// Rebuild trigger - VITE_API_URL updated in Terraform
 export default App
 
