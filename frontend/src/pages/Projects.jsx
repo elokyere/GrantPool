@@ -22,9 +22,30 @@ function Projects() {
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/projects/')
-      return response.data
+      try {
+        const response = await api.get('/api/v1/projects/')
+        const data = response?.data
+        // Check if response is HTML (API routing issue)
+        if (typeof data === 'string' && data.trim().startsWith('<!')) {
+          console.error('API returned HTML instead of JSON. Check VITE_API_URL configuration.')
+          return []
+        }
+        // Ensure we always return an array
+        if (Array.isArray(data)) {
+          return data
+        }
+        if (data) {
+          console.warn('Projects API returned non-array data:', data)
+        }
+        return []
+      } catch (error) {
+        console.error('Error fetching projects:', error)
+        return []
+      }
     },
+    placeholderData: [],
+    initialData: [],
+    select: (data) => Array.isArray(data) ? data : [],
   })
 
   const createMutation = useMutation({
@@ -67,7 +88,7 @@ function Projects() {
 
       // Optimistically update to the new value - remove project immediately
       queryClient.setQueryData(['projects'], (old) => {
-        return old ? old.filter((project) => project.id !== projectId) : []
+        return Array.isArray(old) ? old.filter((project) => project.id !== projectId) : []
       })
 
       // Return a context object with the snapshotted value
@@ -216,7 +237,7 @@ function Projects() {
       )}
 
       <div>
-        {projects && projects.length > 0 ? (
+        {Array.isArray(projects) && projects.length > 0 ? (
           projects.map((project) => (
             <div key={project.id} className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.5rem' }}>

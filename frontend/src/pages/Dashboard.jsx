@@ -72,6 +72,11 @@ function Dashboard() {
         const response = await api.get('/api/v1/evaluations/')
         // Ensure we always return an array, even if API returns unexpected format
         const data = response?.data
+        // Check if response is HTML (API routing issue)
+        if (typeof data === 'string' && data.trim().startsWith('<!')) {
+          console.error('Evaluations API returned HTML instead of JSON. Check VITE_API_URL configuration.')
+          return []
+        }
         if (Array.isArray(data)) {
           return data
         }
@@ -125,6 +130,11 @@ function Dashboard() {
         const response = await api.get('/api/v1/grants/')
         // Ensure we always return an array, even if API returns unexpected format
         const data = response?.data
+        // Check if response is HTML (API routing issue)
+        if (typeof data === 'string' && data.trim().startsWith('<!')) {
+          console.error('Grants API returned HTML instead of JSON. Check VITE_API_URL configuration.')
+          return []
+        }
         if (Array.isArray(data)) {
           return data
         }
