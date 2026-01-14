@@ -1,7 +1,14 @@
 import axios from 'axios'
 
+// Log API URL for debugging (remove in production)
+const apiBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+if (import.meta.env.DEV || window.location.hostname !== 'localhost') {
+  console.log('API Base URL:', apiBaseURL)
+  console.log('Expected: https://grantpool.org (without /api/v1)')
+}
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: apiBaseURL,
   headers: {
     'Content-Type': 'application/json',
   },
