@@ -7,6 +7,7 @@ import hmac
 import hashlib
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException, status, Header
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from typing import Optional
@@ -158,16 +159,18 @@ async def paystack_callback(
     Paystack payment callback endpoint.
     
     This is called after user completes payment on Paystack.
-    Verifies the transaction and returns status.
+    Verifies the transaction and redirects to frontend dashboard.
     Note: Paystack may use 'reference' or 'trxref' parameter.
     We also support 'ref' query parameter for our custom callback URL.
     """
     # Use reference, trxref, or ref (our custom parameter)
     payment_ref = reference or trxref or ref
     if not payment_ref:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing reference parameter"
+        # Redirect to dashboard with error
+        frontend_url = settings.FRONTEND_URL or settings.APP_URL.replace('/api/v1', '')
+        return RedirectResponse(
+            url=f"{frontend_url}/dashboard?payment=error&message=Missing+reference+parameter",
+            status_code=302
         )
     
     db = SessionLocal()
@@ -175,24 +178,27 @@ async def paystack_callback(
         # Verify transaction
         payment = PaymentService.verify_transaction(payment_ref, db)
         
+        # Get frontend URL (fallback to APP_URL without /api/v1)
+        frontend_url = settings.FRONTEND_URL or settings.APP_URL.replace('/api/v1', '').replace('/api', '')
+        
         if payment and payment.status == "succeeded":
-            # Payment successful
-            return {
-                "status": "success",
-                "message": "Payment successful",
-                "reference": payment_ref
-            }
+            # Payment successful - redirect to dashboard with reference
+            return RedirectResponse(
+                url=f"{frontend_url}/dashboard?payment=success&reference={payment_ref}",
+                status_code=302
+            )
         else:
-            # Payment failed
-            return {
-                "status": "failed",
-                "message": "Payment failed or not found",
-                "reference": payment_ref
-            }
+            # Payment failed - redirect to dashboard with error
+            return RedirectResponse(
+                url=f"{frontend_url}/dashboard?payment=failed&reference={payment_ref}",
+                status_code=302
+            )
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Callback processing error: {str(e)}"
+        # Error occurred - redirect to dashboard with error
+        frontend_url = settings.FRONTEND_URL or settings.APP_URL.replace('/api/v1', '').replace('/api', '')
+        return RedirectResponse(
+            url=f"{frontend_url}/dashboard?payment=error&message={str(e).replace(' ', '+')}",
+            status_code=302
         )
     finally:
         db.close()

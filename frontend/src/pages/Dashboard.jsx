@@ -12,6 +12,8 @@ function Dashboard() {
   const [showForm, setShowForm] = useState(false)
   const [showPaywall, setShowPaywall] = useState(false)
   const [showReportIssue, setShowReportIssue] = useState(false)
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
+  const [selectedPaymentType, setSelectedPaymentType] = useState('standard')
   const [reportIssueContext, setReportIssueContext] = useState({})
   const [formData, setFormData] = useState({
     grant_id: '',
@@ -353,19 +355,44 @@ function Dashboard() {
     }
   }
 
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
+  const [selectedPaymentType, setSelectedPaymentType] = useState('standard')
+
   const handleInitializePayment = async (paymentType = 'standard') => {
+    // Show confirmation dialog first
+    setSelectedPaymentType(paymentType)
+    setShowPaymentConfirmation(true)
+  }
+
+  const confirmPayment = async () => {
     try {
+      setShowPaymentConfirmation(false)
       const response = await api.post('/api/v1/payments/initialize', {
         country_code: null,
-        payment_type: paymentType,
+        payment_type: selectedPaymentType,
       })
       // Store form data in sessionStorage (better than localStorage for payment data)
+      // Include all grant data, not just grant_id
       sessionStorage.setItem('pending_evaluation', JSON.stringify({
         grant_id: formData.grant_id,
+        grant_url: formData.grant_url,
         project_id: formData.project_id,
         use_llm: formData.use_llm,
+        // Include all grant context fields
+        grant_name: formData.grant_name,
+        grant_description: formData.grant_description,
+        grant_deadline: formData.grant_deadline,
+        grant_decision_date: formData.grant_decision_date,
+        grant_award_amount: formData.grant_award_amount,
+        grant_award_structure: formData.grant_award_structure,
+        grant_eligibility: formData.grant_eligibility,
+        grant_preferred_applicants: formData.grant_preferred_applicants,
+        grant_application_requirements: formData.grant_application_requirements,
+        grant_reporting_requirements: formData.grant_reporting_requirements,
+        grant_restrictions: formData.grant_restrictions,
+        grant_mission: formData.grant_mission,
       }))
-      // Redirect to Paystack - reference will be in URL when user returns
+      // Redirect to Paystack - callback will redirect back to dashboard
       window.location.href = response.data.authorization_url
     } catch (error) {
       alert(error.response?.data?.detail || 'Failed to initialize payment')
@@ -392,7 +419,27 @@ function Dashboard() {
   useEffect(() => {
     // Get payment reference from URL parameters (preferred) or sessionStorage (fallback)
     const urlParams = new URLSearchParams(window.location.search)
+    const paymentStatus = urlParams.get('payment') // 'success', 'failed', or 'error'
     const refFromUrl = urlParams.get('reference') || urlParams.get('ref') || urlParams.get('trxref')
+    
+    // Show payment status message
+    if (paymentStatus === 'success') {
+      // Payment successful - will be handled below
+    } else if (paymentStatus === 'failed') {
+      alert('Payment failed. Please try again or contact support.')
+      // Clean up URL
+      urlParams.delete('payment')
+      urlParams.delete('reference')
+      window.history.replaceState({}, '', `${window.location.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`)
+    } else if (paymentStatus === 'error') {
+      const errorMsg = urlParams.get('message') || 'An error occurred during payment'
+      alert(`Payment error: ${errorMsg}`)
+      // Clean up URL
+      urlParams.delete('payment')
+      urlParams.delete('reference')
+      urlParams.delete('message')
+      window.history.replaceState({}, '', `${window.location.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`)
+    }
     
     // Check for pending standard assessment
     const pendingEvalData = sessionStorage.getItem('pending_evaluation')
@@ -413,12 +460,42 @@ function Dashboard() {
           if (payment) {
             // Payment succeeded, now create evaluation
             try {
-              const evalResponse = await api.post('/api/v1/evaluations/', {
-                grant_id: parseInt(evalData.grant_id),
+              // Prepare evaluation data with all grant information
+              const evaluationData = {
                 project_id: evalData.project_id ? parseInt(evalData.project_id) : null,
                 use_llm: evalData.use_llm,
                 payment_reference: pendingRef,
-              })
+              }
+              
+              // Include grant_id if available, otherwise use grant_url and other fields
+              if (evalData.grant_id) {
+                evaluationData.grant_id = parseInt(evalData.grant_id)
+              } else if (evalData.grant_url) {
+                evaluationData.grant_url = evalData.grant_url
+                // Include any additional grant context fields
+                if (evalData.grant_name) evaluationData.grant_name = evalData.grant_name
+                if (evalData.grant_description) evaluationData.grant_description = evalData.grant_description
+                if (evalData.grant_deadline) evaluationData.grant_deadline = evalData.grant_deadline
+                if (evalData.grant_decision_date) evaluationData.grant_decision_date = evalData.grant_decision_date
+                if (evalData.grant_award_amount) evaluationData.grant_award_amount = evalData.grant_award_amount
+                if (evalData.grant_award_structure) evaluationData.grant_award_structure = evalData.grant_award_structure
+                if (evalData.grant_eligibility) evaluationData.grant_eligibility = evalData.grant_eligibility
+                if (evalData.grant_preferred_applicants) evaluationData.grant_preferred_applicants = evalData.grant_preferred_applicants
+                if (evalData.grant_application_requirements) {
+                  evaluationData.grant_application_requirements = Array.isArray(evalData.grant_application_requirements)
+                    ? evalData.grant_application_requirements
+                    : evalData.grant_application_requirements.split('\n').filter(l => l.trim())
+                }
+                if (evalData.grant_reporting_requirements) evaluationData.grant_reporting_requirements = evalData.grant_reporting_requirements
+                if (evalData.grant_restrictions) {
+                  evaluationData.grant_restrictions = Array.isArray(evalData.grant_restrictions)
+                    ? evalData.grant_restrictions
+                    : evalData.grant_restrictions.split('\n').filter(l => l.trim())
+                }
+                if (evalData.grant_mission) evaluationData.grant_mission = evalData.grant_mission
+              }
+              
+              const evalResponse = await api.post('/api/v1/evaluations/', evaluationData)
               
               // Clear pending state
               sessionStorage.removeItem('pending_evaluation')
@@ -1045,6 +1122,64 @@ function Dashboard() {
           >
             Cancel
           </button>
+        </div>
+      )}
+
+      {/* Payment Confirmation Dialog */}
+      {showPaymentConfirmation && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div className="card" style={{ maxWidth: '500px', width: '90%', margin: '0 auto' }}>
+            <h2>Confirm Payment</h2>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <p><strong>Assessment Type:</strong> {selectedPaymentType === 'standard' ? 'Single Assessment' : selectedPaymentType === 'bundle' ? 'Bundle (3 Assessments)' : 'Refinement'}</p>
+              <p><strong>Price:</strong> {
+                selectedPaymentType === 'standard' 
+                  ? (pricing?.standard?.usd_equivalent ? `$${pricing.standard.usd_equivalent.toFixed(2)}` : '$7.00')
+                  : selectedPaymentType === 'bundle'
+                  ? (pricing?.bundle?.usd_equivalent ? `$${pricing.bundle.usd_equivalent.toFixed(2)}` : '$18.00')
+                  : (pricing?.refinement?.usd_equivalent ? `$${pricing.refinement.usd_equivalent.toFixed(2)}` : '$3.00')
+              }</p>
+              {formData.grant_url && (
+                <p><strong>Grant URL:</strong> {formData.grant_url}</p>
+              )}
+              {formData.grant_name && (
+                <p><strong>Grant Name:</strong> {formData.grant_name}</p>
+              )}
+              {formData.project_id && (
+                <p><strong>Project:</strong> {projectsArray.find(p => p.id === parseInt(formData.project_id))?.name || 'Selected project'}</p>
+              )}
+              <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#6b7280' }}>
+                You will be redirected to Paystack to complete payment. After successful payment, your assessment will be created automatically.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button 
+                onClick={() => setShowPaymentConfirmation(false)} 
+                className="btn btn-secondary" 
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmPayment} 
+                className="btn btn-primary" 
+                style={{ flex: 1 }}
+              >
+                Confirm & Pay
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
