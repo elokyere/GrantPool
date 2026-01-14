@@ -3,13 +3,17 @@ import axios from 'axios'
 // Normalize VITE_API_URL:
 // - If someone accidentally sets it to https://grantpool.org/api/v1, strip the trailing /api/v1
 //   because all callers already include /api/v1 in their request paths.
+// - Also strip any trailing slashes to prevent double slashes
 const rawBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-const normalizedBaseURL = rawBaseURL.replace(/\/api\/v1\/?$/, '')
+// Remove trailing /api/v1 or /api/v1/ if present
+let normalizedBaseURL = rawBaseURL.replace(/\/api\/v1\/?$/, '')
+// Remove any trailing slashes
+normalizedBaseURL = normalizedBaseURL.replace(/\/+$/, '')
 
-if (import.meta.env.DEV || window.location.hostname !== 'localhost') {
-  console.log('API Base URL (raw):', rawBaseURL)
-  console.log('API Base URL (normalized):', normalizedBaseURL)
-}
+// Always log in production to help debug URL issues
+console.log('[API Config] Raw VITE_API_URL:', rawBaseURL)
+console.log('[API Config] Normalized baseURL:', normalizedBaseURL)
+console.log('[API Config] Example full URL will be:', normalizedBaseURL + '/api/v1/auth/login')
 
 export const api = axios.create({
   baseURL: normalizedBaseURL,
