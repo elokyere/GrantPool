@@ -44,7 +44,8 @@ function Dashboard() {
     queryKey: ['projects'],
     queryFn: async () => {
       const response = await api.get('/api/v1/projects/')
-      return response.data
+      // Ensure we always return an array, even if API returns unexpected format
+      return Array.isArray(response.data) ? response.data : []
     },
   })
 
@@ -441,13 +442,16 @@ function Dashboard() {
     return <div className="container">Loading...</div>
   }
 
-  const applyCount = evaluations?.filter(e => e.recommendation === 'APPLY').length || 0
-  const passCount = evaluations?.filter(e => e.recommendation === 'PASS').length || 0
-  const conditionalCount = evaluations?.filter(e => e.recommendation === 'CONDITIONAL').length || 0
+  // Ensure evaluations is an array before filtering
+  const evaluationsArray = Array.isArray(evaluations) ? evaluations : []
+  const applyCount = evaluationsArray.filter(e => e.recommendation === 'APPLY').length || 0
+  const passCount = evaluationsArray.filter(e => e.recommendation === 'PASS').length || 0
+  const conditionalCount = evaluationsArray.filter(e => e.recommendation === 'CONDITIONAL').length || 0
 
   // If viewing single evaluation
   if (evaluationId) {
-    const evaluation = singleEvaluation || evaluations?.find(e => e.id === parseInt(evaluationId))
+    const evaluationsArray = Array.isArray(evaluations) ? evaluations : []
+    const evaluation = singleEvaluation || evaluationsArray.find(e => e.id === parseInt(evaluationId))
     
     if (singleLoading) {
       return <div className="container">Loading...</div>
@@ -1331,7 +1335,8 @@ function Dashboard() {
             >
               {showAllEvaluations ? 'Show Less' : 'Show All'}
             </button>
-          )}
+            )
+          })()}
         </div>
         {evaluations && evaluations.length > 0 ? (
           <div>
@@ -1437,11 +1442,12 @@ function Dashboard() {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <p>No evaluations yet. Create an evaluation to see grant recommendations.</p>
-        )}
+              ))}
+            </div>
+          ) : (
+            <p>No evaluations yet. Create an evaluation to see grant recommendations.</p>
+          )
+        })()}
       </div>
       {showReportIssue && (
         <ReportIssue 
