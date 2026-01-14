@@ -1,4 +1,4 @@
-// Frontend rebuild trigger - ensures VITE_API_URL normalization is deployed
+// Frontend rebuild: VITE_API_URL normalization must be embedded in build
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Landing from './pages/Landing'
