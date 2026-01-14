@@ -62,6 +62,7 @@ function Dashboard() {
     },
     placeholderData: [], // Ensure React Query always has an array
     initialData: [], // Set initial data to empty array
+    select: (data) => Array.isArray(data) ? data : [], // Normalize data even from cache
   })
 
   const { data: evaluations, isLoading: evaluationsLoading } = useQuery({
@@ -86,6 +87,7 @@ function Dashboard() {
     },
     placeholderData: [], // Ensure React Query always has an array
     initialData: [], // Set initial data to empty array
+    select: (data) => Array.isArray(data) ? data : [], // Normalize data even from cache
   })
 
   // Get single evaluation if ID provided
@@ -138,6 +140,7 @@ function Dashboard() {
     },
     placeholderData: [], // Ensure React Query always has an array
     initialData: [], // Set initial data to empty array
+    select: (data) => Array.isArray(data) ? data : [], // Normalize data even from cache
   })
 
   // Mutation to extract grant data from URL (for review/edit before evaluation)
