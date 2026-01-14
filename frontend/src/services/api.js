@@ -1,14 +1,18 @@
 import axios from 'axios'
 
-// Log API URL for debugging (remove in production)
-const apiBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// Normalize VITE_API_URL:
+// - If someone accidentally sets it to https://grantpool.org/api/v1, strip the trailing /api/v1
+//   because all callers already include /api/v1 in their request paths.
+const rawBaseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const normalizedBaseURL = rawBaseURL.replace(/\/api\/v1\/?$/, '')
+
 if (import.meta.env.DEV || window.location.hostname !== 'localhost') {
-  console.log('API Base URL:', apiBaseURL)
-  console.log('Expected: https://grantpool.org (without /api/v1)')
+  console.log('API Base URL (raw):', rawBaseURL)
+  console.log('API Base URL (normalized):', normalizedBaseURL)
 }
 
 export const api = axios.create({
-  baseURL: apiBaseURL,
+  baseURL: normalizedBaseURL,
   headers: {
     'Content-Type': 'application/json',
   },
