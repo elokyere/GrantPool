@@ -523,7 +523,7 @@ function Dashboard() {
             </div>
           </div>
 
-          {evaluation.reasoning && (
+          {evaluation.reasoning && typeof evaluation.reasoning === 'object' && (
             <div style={{ marginTop: '1rem' }}>
               <h4>Reasoning</h4>
               {Object.entries(evaluation.reasoning)
@@ -536,7 +536,7 @@ function Dashboard() {
             </div>
           )}
 
-          {evaluation.red_flags && evaluation.red_flags.length > 0 && (
+          {evaluation.red_flags && Array.isArray(evaluation.red_flags) && evaluation.red_flags.length > 0 && (
             <div style={{ marginTop: '1rem' }}>
               <h4 style={{ color: '#dc3545' }}>Red Flags</h4>
               <ul>
@@ -547,7 +547,7 @@ function Dashboard() {
             </div>
           )}
 
-          {evaluation.key_insights && evaluation.key_insights.length > 0 && (
+          {evaluation.key_insights && Array.isArray(evaluation.key_insights) && evaluation.key_insights.length > 0 && (
             <div style={{ marginTop: '1rem' }}>
               <h4>Key Insights</h4>
               <ul>
@@ -598,7 +598,7 @@ function Dashboard() {
                 </div>
               )}
               
-              {evaluation.decision_gates && evaluation.decision_gates.length > 0 && (
+              {evaluation.decision_gates && Array.isArray(evaluation.decision_gates) && evaluation.decision_gates.length > 0 && (
                 <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #b3d9ff' }}>
                   <h4 style={{ color: '#004085', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <span>🚪</span> Decision Gates
@@ -686,7 +686,8 @@ function Dashboard() {
           {/* Free Tier - Show Premium Features as Locked/Upgrade Prompts */}
           {evaluation.evaluation_tier === 'free' && !evaluation.is_refinement && (() => {
             // Get project name for personalization
-            const project = projects?.find(p => p.id === evaluation.project_id)
+            const projectsArray = Array.isArray(projects) ? projects : []
+            const project = projectsArray.find(p => p.id === evaluation.project_id)
             const projectName = project?.name || 'your project'
             const grantName = evaluation.grant_name || 'this grant'
             
@@ -987,7 +988,7 @@ function Dashboard() {
         <div className="card" style={{ marginBottom: '2rem' }}>
           <h2>Evaluate Grant</h2>
           <form onSubmit={handleSubmit}>
-            {projects && projects.length > 0 && (
+            {projects && Array.isArray(projects) && projects.length > 0 && (
               <div className="form-group">
                 <label>Project (optional - leave blank for default)</label>
                 <select
@@ -1238,8 +1239,8 @@ function Dashboard() {
                 onChange={(e) => setFormData({ ...formData, grant_id: e.target.value })}
                 required
               >
-                  <option value="">Select grant from index</option>
-                {grants?.map((grant) => (
+                <option value="">Select grant from index</option>
+                {Array.isArray(grants) && grants.map((grant) => (
                   <option key={grant.id} value={grant.id}>
                     {grant.name}
                   </option>
@@ -1292,11 +1293,11 @@ function Dashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
         <div className="card">
           <h3>Projects</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{projects?.length || 0}</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{Array.isArray(projects) ? projects.length : 0}</p>
         </div>
         <div className="card">
           <h3>Evaluations</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{evaluations?.length || 0}</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{Array.isArray(evaluations) ? evaluations.length : 0}</p>
         </div>
         <div className="card">
           <h3>Apply</h3>
