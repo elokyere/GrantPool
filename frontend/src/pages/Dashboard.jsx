@@ -43,17 +43,44 @@ function Dashboard() {
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/projects/')
-      // Ensure we always return an array, even if API returns unexpected format
-      return Array.isArray(response.data) ? response.data : []
+      try {
+        const response = await api.get('/api/v1/projects/')
+        // Ensure we always return an array, even if API returns unexpected format
+        const data = response?.data
+        if (Array.isArray(data)) {
+          return data
+        }
+        // If data exists but isn't an array, log and return empty array
+        if (data) {
+          console.warn('Projects API returned non-array data:', data)
+        }
+        return []
+      } catch (error) {
+        console.error('Error fetching projects:', error)
+        return []
+      }
     },
   })
 
   const { data: evaluations, isLoading: evaluationsLoading } = useQuery({
     queryKey: ['evaluations'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/evaluations/')
-      return response.data
+      try {
+        const response = await api.get('/api/v1/evaluations/')
+        // Ensure we always return an array, even if API returns unexpected format
+        const data = response?.data
+        if (Array.isArray(data)) {
+          return data
+        }
+        // If data exists but isn't an array, log and return empty array
+        if (data) {
+          console.warn('Evaluations API returned non-array data:', data)
+        }
+        return []
+      } catch (error) {
+        console.error('Error fetching evaluations:', error)
+        return []
+      }
     },
   })
 
@@ -88,8 +115,22 @@ function Dashboard() {
   const { data: grants } = useQuery({
     queryKey: ['grants'],
     queryFn: async () => {
-      const response = await api.get('/api/v1/grants/')
-      return response.data
+      try {
+        const response = await api.get('/api/v1/grants/')
+        // Ensure we always return an array, even if API returns unexpected format
+        const data = response?.data
+        if (Array.isArray(data)) {
+          return data
+        }
+        // If data exists but isn't an array, log and return empty array
+        if (data) {
+          console.warn('Grants API returned non-array data:', data)
+        }
+        return []
+      } catch (error) {
+        console.error('Error fetching grants:', error)
+        return []
+      }
     },
   })
 
@@ -442,16 +483,21 @@ function Dashboard() {
     return <div className="container">Loading...</div>
   }
 
-  // Ensure evaluations is an array before filtering
-  const evaluationsArray = Array.isArray(evaluations) ? evaluations : []
-  const applyCount = evaluationsArray.filter(e => e.recommendation === 'APPLY').length || 0
-  const passCount = evaluationsArray.filter(e => e.recommendation === 'PASS').length || 0
-  const conditionalCount = evaluationsArray.filter(e => e.recommendation === 'CONDITIONAL').length || 0
+  // Ensure all data is arrays - defensive programming at component level
+  // This is a safety net in case query functions somehow return non-arrays
+  const evaluationsArray = Array.isArray(evaluations) ? evaluations : (evaluations ? [] : [])
+  const projectsArray = Array.isArray(projects) ? projects : (projects ? [] : [])
+  const grantsArray = Array.isArray(grants) ? grants : (grants ? [] : [])
+  
+  // Safe filtering with additional validation
+  const applyCount = evaluationsArray.filter(e => e && e.recommendation === 'APPLY').length || 0
+  const passCount = evaluationsArray.filter(e => e && e.recommendation === 'PASS').length || 0
+  const conditionalCount = evaluationsArray.filter(e => e && e.recommendation === 'CONDITIONAL').length || 0
 
   // If viewing single evaluation
   if (evaluationId) {
-    const evaluationsArray = Array.isArray(evaluations) ? evaluations : []
-    const evaluation = singleEvaluation || evaluationsArray.find(e => e.id === parseInt(evaluationId))
+    // Use the already-validated evaluationsArray from above
+    const evaluation = singleEvaluation || evaluationsArray.find(e => e && e.id === parseInt(evaluationId))
     
     if (singleLoading) {
       return <div className="container">Loading...</div>
@@ -685,9 +731,8 @@ function Dashboard() {
 
           {/* Free Tier - Show Premium Features as Locked/Upgrade Prompts */}
           {evaluation.evaluation_tier === 'free' && !evaluation.is_refinement && (() => {
-            // Get project name for personalization
-            const projectsArray = Array.isArray(projects) ? projects : []
-            const project = projectsArray.find(p => p.id === evaluation.project_id)
+            // Get project name for personalization (use already-validated projectsArray)
+            const project = projectsArray.find(p => p && p.id === evaluation.project_id)
             const projectName = project?.name || 'your project'
             const grantName = evaluation.grant_name || 'this grant'
             
@@ -988,7 +1033,7 @@ function Dashboard() {
         <div className="card" style={{ marginBottom: '2rem' }}>
           <h2>Evaluate Grant</h2>
           <form onSubmit={handleSubmit}>
-            {projects && Array.isArray(projects) && projects.length > 0 && (
+            {projectsArray.length > 0 && (
               <div className="form-group">
                 <label>Project (optional - leave blank for default)</label>
                 <select
@@ -996,7 +1041,7 @@ function Dashboard() {
                   onChange={(e) => setFormData({ ...formData, project_id: e.target.value })}
                 >
                   <option value="">Use default project</option>
-                  {projects.map((project) => (
+                  {projectsArray.map((project) => (
                     <option key={project.id} value={project.id}>
                       {project.name}
                     </option>
@@ -1240,7 +1285,7 @@ function Dashboard() {
                 required
               >
                 <option value="">Select grant from index</option>
-                {Array.isArray(grants) && grants.map((grant) => (
+                {grantsArray.map((grant) => (
                   <option key={grant.id} value={grant.id}>
                     {grant.name}
                   </option>
@@ -1293,11 +1338,11 @@ function Dashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
         <div className="card">
           <h3>Projects</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{Array.isArray(projects) ? projects.length : 0}</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{projectsArray.length}</p>
         </div>
         <div className="card">
           <h3>Evaluations</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{Array.isArray(evaluations) ? evaluations.length : 0}</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{evaluationsArray.length}</p>
         </div>
         <div className="card">
           <h3>Apply</h3>
@@ -1336,8 +1381,7 @@ function Dashboard() {
             >
               {showAllEvaluations ? 'Show Less' : 'Show All'}
             </button>
-            )
-          })()}
+          )}
         </div>
         {evaluations && evaluations.length > 0 ? (
           <div>
@@ -1443,12 +1487,11 @@ function Dashboard() {
                   </div>
                 </div>
               </div>
-              ))}
-            </div>
-          ) : (
-            <p>No evaluations yet. Create an evaluation to see grant recommendations.</p>
-          )
-        })()}
+            ))}
+          </div>
+        ) : (
+          <p>No evaluations yet. Create an evaluation to see grant recommendations.</p>
+        )}
       </div>
       {showReportIssue && (
         <ReportIssue 
