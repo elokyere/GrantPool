@@ -355,9 +355,6 @@ function Dashboard() {
     }
   }
 
-  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
-  const [selectedPaymentType, setSelectedPaymentType] = useState('standard')
-
   const handleInitializePayment = async (paymentType = 'standard') => {
     // Show confirmation dialog first
     setSelectedPaymentType(paymentType)
