@@ -18,6 +18,7 @@ from app.core.security import verify_password, get_password_hash, create_access_
 from app.core.config import settings
 
 router = APIRouter()
+# OAuth2PasswordBearer tokenUrl must match the actual route path
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 

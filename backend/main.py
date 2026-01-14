@@ -131,5 +131,9 @@ async def health_check():
 
 
 # Include API routes
+# IMPORTANT: With preserve_path_prefix=true in Digital Ocean ingress,
+# the /api prefix is PRESERVED when forwarding to backend.
+# So /api/v1/* requests arrive at backend as /api/v1/*
+# Therefore, we must use /api/v1 prefix here to match.
 app.include_router(api_router, prefix="/api/v1")
 
