@@ -200,48 +200,40 @@ function Landing() {
           )}
         </div>
         
-        <h1 className="landing-title">Know Before You Apply—Get Your Grant Fit Score in 90 Seconds</h1>
+        <h1 className="landing-title">
+          Decide if a grant is worth applying for — <span style={{ fontWeight: '700', color: '#4a77e8' }}>before you waste weeks.</span>
+        </h1>
         <p className="landing-subtitle">
-          The average grant takes 20+ hours to apply for. Don't start yours until you know you're a top-tier candidate.
+          Get a fast analysis of how well your project fits real grant criteria. See fit, risk, and effort in minutes.
         </p>
 
-        {/* How It Works - Step-by-Step Preview */}
-        <div className="how-it-works-preview">
-          <div className="step-item">
-            <div className="step-icon">1</div>
-            <div className="step-content">
-              <div className="step-title">Paste Link</div>
-              <div className="step-description">Share any grant listing URL</div>
+        {/* How GrantPool Works Section */}
+        <div className="how-grantpool-works-section">
+          <h2 className="section-heading">How GrantPool Works</h2>
+          <div className="how-it-works-steps">
+            <div className="works-step-title-only">
+              <span className="works-step-number-text">1.</span> <span className="works-step-title-text">Paste a grant link</span>
+            </div>
+            <div className="works-step-title-only">
+              <span className="works-step-number-text">2.</span> <span className="works-step-title-text">Describe your project</span>
+            </div>
+            <div className="works-step-title-only">
+              <span className="works-step-number-text">3.</span> <span className="works-step-title-text">Get your evaluation</span>
             </div>
           </div>
-          <div className="step-arrow">→</div>
-          <div className="step-item">
-            <div className="step-icon">2</div>
-            <div className="step-content">
-              <div className="step-title">AI Analyzes Criteria</div>
-              <div className="step-description">We compare your project to past winners</div>
-            </div>
-          </div>
-          <div className="step-arrow">→</div>
-          <div className="step-item">
-            <div className="step-icon">3</div>
-            <div className="step-content">
-              <div className="step-title">Get Your Fit Score</div>
-              <div className="step-description">Clear APPLY or PASS recommendation</div>
-            </div>
-          </div>
+          <p className="works-conclusion">Results in minutes, not days.</p>
         </div>
-        
+
         <form onSubmit={handleCheckGrant} className="landing-form">
           <div className="input-wrapper">
             <svg className="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M9 17A8 8 0 1 0 9 1a8 8 0 0 0 0 16z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="m19 19-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M8 4H6C4.89543 4 4 4.89543 4 6V14C4 15.1046 4.89543 16 6 16H14C15.1046 16 16 15.1046 16 14V12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 4H16M16 4V8M16 4L8 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
             <input
               type="url"
               className="landing-input"
-              placeholder="https://grants.gov/web/grants/view-opportunity.html..."
+              placeholder="Enter the grant URL..."
               value={grantUrl}
               onChange={(e) => setGrantUrl(e.target.value)}
               required
@@ -262,6 +254,97 @@ function Landing() {
         <p className="landing-disclaimer">
           Get your first assessment free. No credit card required.
         </p>
+
+        {/* Free vs. Paid Assessments Section */}
+        <div className="assessments-comparison-section">
+          <h2 className="section-heading">Free vs. Paid Assessments</h2>
+          <div className="assessments-comparison-card">
+            <div className="assessment-column assessment-column-free">
+              <div className="assessment-column-header">Free Assessment</div>
+              <div className="assessment-features">
+                <div className="assessment-feature">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#10b981', marginRight: '8px' }}>
+                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Basic relevance check
+                </div>
+                <div className="assessment-feature">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#10b981', marginRight: '8px' }}>
+                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Key red flags
+                </div>
+                <div className="assessment-feature">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#10b981', marginRight: '8px' }}>
+                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Quick overview
+                </div>
+              </div>
+            </div>
+            <div className="assessment-column assessment-column-paid">
+              <div className="assessment-column-header">Paid Assessment</div>
+              <div className="assessment-features">
+                <div className="assessment-feature">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#10b981', marginRight: '8px' }}>
+                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Full detailed analysis
+                </div>
+                <div className="assessment-feature">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#10b981', marginRight: '8px' }}>
+                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Success probability
+                </div>
+                <div className="assessment-feature">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#10b981', marginRight: '8px' }}>
+                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Framing guidance
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="pricing-info">
+            <p style={{ margin: 0, fontSize: '1rem' }}>
+              <strong>$7</strong> per assessment | <strong style={{ color: '#4a77e8' }}>$19</strong> for 3 assessments
+            </p>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: '#6b7280' }}>
+              Prices listed in USD. Billed in local currency at checkout.
+            </p>
+          </div>
+        </div>
+
+        {/* Your Data Stays Private Section */}
+        <div className="data-privacy-section">
+          <h2 className="section-heading">Your Data Stays Private</h2>
+          <div className="privacy-badges">
+            <div className="privacy-badge">
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom: '0.75rem' }}>
+                <circle cx="16" cy="12" r="6" stroke="currentColor" strokeWidth="2"/>
+                <path d="M8 26C8 22 11 19 16 19C21 19 24 22 24 26" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="20" cy="10" r="3" fill="currentColor"/>
+              </svg>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#374151', fontWeight: '500' }}>No Human Reviewers</p>
+            </div>
+            <div className="privacy-badge">
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom: '0.75rem' }}>
+                <path d="M16 4L6 9V16C6 22 10 27 16 28C22 27 26 22 26 16V9L16 4Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13 16L15 18L19 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#374151', fontWeight: '500' }}>Confidential & Secure</p>
+            </div>
+            <div className="privacy-badge">
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom: '0.75rem' }}>
+                <rect x="4" y="8" width="24" height="18" rx="2" stroke="currentColor" strokeWidth="2"/>
+                <path d="M4 12H28M4 16H28M4 20H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="24" cy="20" r="2" fill="currentColor"/>
+              </svg>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#374151', fontWeight: '500' }}>Data Not Resold</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
