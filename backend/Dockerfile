@@ -18,6 +18,7 @@ COPY backend/ .
 # Copy evaluator modules from repo root (required for imports)
 COPY evaluator.py .
 COPY llm_evaluator.py .
+COPY SYSTEM_PROMPT.md .
 
 # Copy startup script
 COPY backend/start.sh /start.sh
