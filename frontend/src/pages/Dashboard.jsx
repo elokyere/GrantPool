@@ -1012,6 +1012,41 @@ function Dashboard() {
         </button>
       </div>
 
+      {/* Bundle Credits Indicator - Always Visible */}
+      {creditStatus?.bundle_credits > 0 && (
+        <div style={{ 
+          marginBottom: '1.5rem', 
+          padding: '1rem 1.5rem', 
+          backgroundColor: '#e7f3ff', 
+          borderRadius: '8px',
+          border: '2px solid #007bff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <div>
+            <p style={{ margin: 0, fontWeight: 'bold', color: '#004085', fontSize: '1.1rem' }}>
+              🎉 You have {creditStatus.bundle_credits} bundle credit{creditStatus.bundle_credits > 1 ? 's' : ''} available!
+            </p>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#004085' }}>
+              Create {creditStatus.bundle_credits} more assessment{creditStatus.bundle_credits > 1 ? 's' : ''} without additional payment
+            </p>
+          </div>
+          <button 
+            onClick={() => setShowForm(true)} 
+            className="btn" 
+            style={{ 
+              backgroundColor: '#007bff',
+              color: 'white',
+              borderColor: '#007bff',
+              marginLeft: '1rem'
+            }}
+          >
+            Create Assessment
+          </button>
+        </div>
+      )}
+
       {showPaywall && (
         <div className="card" style={{ textAlign: 'center', maxWidth: '600px', margin: '0 auto 2rem' }}>
           <h2>Get Full Context Assessment</h2>

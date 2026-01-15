@@ -14,7 +14,23 @@ from evaluator import GrantInfo, UserContext, EvaluationResult, EvaluationScores
 
 def load_system_prompt() -> str:
     """Load the system prompt from SYSTEM_PROMPT.md."""
-    prompt_path = os.path.join(os.path.dirname(__file__), "SYSTEM_PROMPT.md")
+    # Try multiple possible locations
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), "SYSTEM_PROMPT.md"),  # Same dir as llm_evaluator.py
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "SYSTEM_PROMPT.md"),  # Parent dir
+        "/app/SYSTEM_PROMPT.md",  # Docker container location
+        "SYSTEM_PROMPT.md",  # Current working directory
+    ]
+    
+    prompt_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            prompt_path = path
+            break
+    
+    if not prompt_path:
+        # Use first path as default for error message
+        prompt_path = possible_paths[0]
     
     # Fallback system prompt if file is missing (matches SYSTEM_PROMPT.md)
     fallback_prompt = """You are GrantFilter, a decisive grant triage system designed to help users save time by identifying which grants are worth applying to.
@@ -82,6 +98,13 @@ You must provide:
 
 Be clear, firm, and respectful — never dismissive. Users trust you because you're willing to say "PASS" when others would hedge, but you do so with respect for their effort and goals."""
     
+    if not prompt_path:
+        # No path found, use fallback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("SYSTEM_PROMPT.md not found in any expected location, using fallback prompt")
+        return fallback_prompt
+    
     try:
         with open(prompt_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -94,6 +117,9 @@ Be clear, firm, and respectful — never dismissive. Users trust you because you
                 if lines[-1].strip() == "```":
                     lines = lines[:-1]
                 content = "\n".join(lines)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Loaded SYSTEM_PROMPT.md from {prompt_path}")
             return content
     except FileNotFoundError:
         # Log warning but use fallback
@@ -105,7 +131,7 @@ Be clear, firm, and respectful — never dismissive. Users trust you because you
         # Log error but use fallback
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Error loading SYSTEM_PROMPT.md: {e}, using fallback prompt")
+        logger.error(f"Error loading SYSTEM_PROMPT.md from {prompt_path}: {e}, using fallback prompt")
         return fallback_prompt
 
 

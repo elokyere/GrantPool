@@ -347,6 +347,10 @@ async def evaluate_grant(
             result = evaluator.evaluate(grant_info, user_context, evaluation_tier=evaluation_tier)
             evaluator_type = "llm"
         except Exception as e:
+            # Log full error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"LLM evaluation failed for user {current_user.id}: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"LLM evaluation failed: {str(e)}"
