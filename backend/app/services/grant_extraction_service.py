@@ -35,16 +35,19 @@ class GrantExtractionService:
         
         Steps:
         1. Validate URL security (SSRF protection)
-        2. Scrape the web page content
+        2. Scrape the web page content (raw_content - immutable source of record)
         3. Clean and structure the content
         4. Use Claude to extract grant details
-        5. Return structured grant data
+        5. Return structured grant data including raw data
         
         Args:
             url: The grant page URL
             
         Returns:
-            Dictionary with extracted grant information
+            Dictionary with extracted grant information including:
+            - raw_title: Raw title from source (immutable)
+            - raw_content: Raw scraped content (immutable)
+            - All extracted/structured fields (name, description, etc.)
             
         Raises:
             ValueError: If URL is invalid or dangerous
@@ -54,11 +57,17 @@ class GrantExtractionService:
         if not is_valid:
             raise ValueError(f"Invalid or dangerous URL: {error_msg}")
         
-        # Step 1: Scrape the page
-        page_content = self._scrape_url(url)
+        # Step 1: Scrape the page (this is our raw_content - immutable source of record)
+        raw_content = self._scrape_url(url)
         
         # Step 2: Extract grant information using Claude
-        grant_data = self._extract_with_claude(url, page_content)
+        grant_data = self._extract_with_claude(url, raw_content)
+        
+        # Step 3: Store raw data (immutable source of record)
+        # raw_title is the extracted name before any sanitization/normalization
+        raw_title = grant_data.get('name') or None
+        grant_data['raw_title'] = raw_title
+        grant_data['raw_content'] = raw_content  # Store full raw scraped content
         
         return grant_data
     

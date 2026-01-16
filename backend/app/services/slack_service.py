@@ -99,9 +99,14 @@ def verify_slack_admin(user_id: str) -> bool:
     return user_id in allowed_users
 
 
-def send_grant_approval_notification(grant_id: int, grant_name: str, grant_url: str) -> None:
+def send_grant_approval_notification(
+    grant_id: int, 
+    grant_name: str, 
+    grant_url: str,
+    draft_normalization: Optional[Dict] = None
+) -> None:
     """
-    Send Slack notification for pending grant approval.
+    Send Slack notification for pending grant approval with draft normalization.
     
     This is a notification only. Action must come from Slack button click.
     
@@ -109,6 +114,11 @@ def send_grant_approval_notification(grant_id: int, grant_name: str, grant_url: 
         grant_id: Grant ID
         grant_name: Grant name
         grant_url: Grant source URL
+        draft_normalization: Optional draft normalization dict with:
+            - canonical_title: str
+            - canonical_summary: str
+            - timeline_status: 'active'|'closed'|'rolling'|'unknown'
+            - confidence_level: 'high'|'medium'|'low'
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -120,6 +130,39 @@ def send_grant_approval_notification(grant_id: int, grant_name: str, grant_url: 
     
     import httpx
     
+    # Build message text with draft normalization
+    message_text = f"*Grant Index Inclusion Request*\n\n"
+    message_text += f"*Source Name:* {grant_name}\n"
+    message_text += f"*URL:* {grant_url}\n"
+    message_text += f"*Grant ID:* `{grant_id}`\n"
+    
+    # Add draft normalization fields if available
+    if draft_normalization:
+        message_text += f"\n*📝 Draft Normalization:*\n"
+        
+        if draft_normalization.get('canonical_title'):
+            message_text += f"*Suggested Title:* {draft_normalization['canonical_title']}\n"
+        else:
+            message_text += f"*Suggested Title:* (use source name)\n"
+        
+        if draft_normalization.get('canonical_summary'):
+            summary = draft_normalization['canonical_summary'][:200]  # Limit length
+            if len(draft_normalization['canonical_summary']) > 200:
+                summary += "..."
+            message_text += f"*Suggested Summary:* {summary}\n"
+        
+        timeline_status = draft_normalization.get('timeline_status', 'unknown')
+        confidence = draft_normalization.get('confidence_level', 'low')
+        timeline_emoji = {
+            'active': '🟢',
+            'closed': '🔴',
+            'rolling': '🔄',
+            'unknown': '⚪'
+        }.get(timeline_status, '⚪')
+        message_text += f"*Timeline Status:* {timeline_emoji} {timeline_status.title()} (confidence: {confidence})\n"
+    else:
+        message_text += f"\n*Note:* Draft normalization not available (will use source data)\n"
+    
     # Simple message with approve/reject buttons
     payload = {
         "text": f"New grant pending approval: {grant_name}",
@@ -128,7 +171,7 @@ def send_grant_approval_notification(grant_id: int, grant_name: str, grant_url: 
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Grant Index Inclusion Request*\n\n*Name:* {grant_name}\n*URL:* {grant_url}\n*Grant ID:* `{grant_id}`"
+                    "text": message_text
                 }
             },
             {

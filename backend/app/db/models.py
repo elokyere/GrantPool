@@ -55,7 +55,7 @@ class Project(Base):
 
 
 class Grant(Base):
-    """Grant information model."""
+    """Grant information model (Source of Record - immutable raw data)."""
     __tablename__ = "grants"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -72,6 +72,12 @@ class Grant(Base):
     reporting_requirements = Column(Text, nullable=True)
     restrictions = Column(JSON, nullable=True)  # List of strings
     source_url = Column(String, nullable=True)
+    
+    # Raw data fields (Source of Record - immutable after initial save)
+    raw_title = Column(String, nullable=True)  # Raw title from source (never overwritten)
+    raw_content = Column(Text, nullable=True)  # Raw scraped content (never overwritten)
+    fetched_at = Column(DateTime(timezone=True), nullable=True)  # When raw data was fetched
+    
     approval_status = Column(String, default='pending', nullable=False)  # 'pending', 'approved', 'rejected'
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin user who approved/rejected
     approved_at = Column(DateTime(timezone=True), nullable=True)
@@ -82,6 +88,7 @@ class Grant(Base):
     # Relationships
     evaluations = relationship("Evaluation", back_populates="grant")
     approver = relationship("User", foreign_keys=[approved_by])
+    normalization = relationship("GrantNormalization", back_populates="grant", uselist=False)
 
 
 class Evaluation(Base):
@@ -194,6 +201,40 @@ class AuditLog(Base):
     user_agent = Column(Text, nullable=True)
     log_metadata = Column(JSON, nullable=True)  # Additional context (renamed from 'metadata' - SQLAlchemy reserved word)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class GrantNormalization(Base):
+    """Grant normalization model (Presentation Layer - editable, auditable).
+    
+    This stores curated/canonical versions of grant data for presentation.
+    Source of truth remains in Grant.raw_* fields which are immutable.
+    """
+    __tablename__ = "grant_normalizations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    grant_id = Column(Integer, ForeignKey("grants.id"), nullable=False, unique=True, index=True)
+    
+    # Canonical presentation fields
+    canonical_title = Column(String, nullable=True)  # Standardized title
+    canonical_summary = Column(Text, nullable=True)  # One-paragraph summary
+    timeline_status = Column(String(20), nullable=True)  # 'active', 'closed', 'rolling', 'unknown'
+    
+    # Metadata
+    normalized_by = Column(String(20), nullable=False, default='system')  # 'system' or 'admin'
+    confidence_level = Column(String(10), nullable=True)  # 'high', 'medium', 'low'
+    revision_notes = Column(Text, nullable=True)  # Notes about changes/edits
+    
+    # Approval tracking
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who approved
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    grant = relationship("Grant", back_populates="normalization")
+    approver = relationship("User", foreign_keys=[approved_by_user_id])
 
 
 class SupportRequest(Base):

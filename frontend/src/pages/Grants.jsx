@@ -20,10 +20,28 @@ function Grants() {
       const response = await api.get('/api/v1/grants/')
       return response.data
     },
+    refetchInterval: 10000, // Auto-refresh every 10 seconds (polls for new approvals)
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    staleTime: 5000, // Consider data stale after 5 seconds
   })
 
-  // Generate neutral summary from description
+  // Get display title (canonical if available, fallback to name)
+  const getDisplayTitle = (grant) => {
+    // Use canonical_title if normalization exists and is approved
+    if (grant.normalization?.canonical_title) {
+      return grant.normalization.canonical_title
+    }
+    // Fallback to raw name
+    return grant.name || 'Untitled Grant'
+  }
+
+  // Generate neutral summary from canonical or raw fields
   const getSummary = (grant) => {
+    // Use canonical_summary if normalization exists and is approved
+    if (grant.normalization?.canonical_summary) {
+      return grant.normalization.canonical_summary
+    }
+    // Fallback to raw description/mission
     if (grant.description) {
       return grant.description
     }
@@ -33,8 +51,21 @@ function Grants() {
     return null
   }
 
-  // Get timeline info
+  // Get timeline info (canonical status if available, fallback to raw deadline)
   const getTimeline = (grant) => {
+    // Use timeline_status from normalization if available
+    if (grant.normalization?.timeline_status) {
+      const status = grant.normalization.timeline_status
+      const statusLabels = {
+        'active': '🟢 Active',
+        'closed': '🔴 Closed',
+        'rolling': '🔄 Rolling',
+        'unknown': '⚪ Unknown'
+      }
+      return statusLabels[status] || status
+    }
+    
+    // Fallback to raw deadline/decision_date
     const parts = []
     if (grant.deadline) {
       parts.push(`Deadline: ${grant.deadline}`)
@@ -45,17 +76,40 @@ function Grants() {
     return parts.length > 0 ? parts.join(' | ') : null
   }
 
-  // Filter grants by keyword (name search)
+  // Get timeline status badge (for display)
+  const getTimelineBadge = (grant) => {
+    if (!grant.normalization?.timeline_status) {
+      return null
+    }
+    const status = grant.normalization.timeline_status
+    const badges = {
+      'active': { emoji: '🟢', label: 'Active', color: '#10b981' },
+      'closed': { emoji: '🔴', label: 'Closed', color: '#ef4444' },
+      'rolling': { emoji: '🔄', label: 'Rolling', color: '#3b82f6' },
+      'unknown': { emoji: '⚪', label: 'Unknown', color: '#6b7280' }
+    }
+    return badges[status] || null
+  }
+
+  // Filter grants by keyword (searches both canonical and raw fields)
   const filteredGrants = useMemo(() => {
     if (!grants) return []
     if (!keywordFilter.trim()) return grants
     
     const keyword = keywordFilter.toLowerCase()
-    return grants.filter(grant => 
-      grant.name.toLowerCase().includes(keyword) ||
-      (grant.description && grant.description.toLowerCase().includes(keyword)) ||
-      (grant.source_url && grant.source_url.toLowerCase().includes(keyword))
-    )
+    return grants.filter(grant => {
+      const title = getDisplayTitle(grant).toLowerCase()
+      const summary = getSummary(grant)?.toLowerCase() || ''
+      const name = grant.name?.toLowerCase() || ''
+      const description = grant.description?.toLowerCase() || ''
+      const url = grant.source_url?.toLowerCase() || ''
+      
+      return title.includes(keyword) ||
+        summary.includes(keyword) ||
+        name.includes(keyword) ||
+        description.includes(keyword) ||
+        url.includes(keyword)
+    })
   }, [grants, keywordFilter])
 
   // Check if user is admin (this would come from user context - simplified for now)
@@ -347,8 +401,10 @@ function Grants() {
               </thead>
               <tbody>
                 {filteredGrants.map((grant, idx) => {
+                  const displayTitle = getDisplayTitle(grant)
                   const summary = getSummary(grant)
                   const timeline = getTimeline(grant)
+                  const timelineBadge = getTimelineBadge(grant)
                   return (
                     <tr 
                       key={grant.id} 
@@ -361,7 +417,21 @@ function Grants() {
                         {grant.id}
                       </td>
                       <td style={{ padding: '0.75rem', fontWeight: '500', color: '#111827' }}>
-                        {grant.name}
+                        <div>
+                          {displayTitle}
+                          {grant.normalization && (
+                            <span style={{ 
+                              marginLeft: '0.5rem', 
+                              fontSize: '0.625rem', 
+                              color: '#6b7280',
+                              backgroundColor: '#f3f4f6',
+                              padding: '0.125rem 0.375rem',
+                              borderRadius: '3px'
+                            }}>
+                              Curated
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: '0.75rem', color: '#4b5563', lineHeight: '1.5', maxWidth: '300px' }}>
                         {summary ? (
@@ -378,8 +448,27 @@ function Grants() {
                           <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>No summary</span>
                         )}
                       </td>
-                      <td style={{ padding: '0.75rem', color: '#6b7280', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                        {timeline || <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Not specified</span>}
+                      <td style={{ padding: '0.75rem', fontSize: '0.8125rem' }}>
+                        {timelineBadge ? (
+                          <span style={{ 
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            padding: '0.25rem 0.5rem',
+                            backgroundColor: timelineBadge.color + '15',
+                            color: timelineBadge.color,
+                            borderRadius: '4px',
+                            fontWeight: '500',
+                            fontSize: '0.75rem'
+                          }}>
+                            <span>{timelineBadge.emoji}</span>
+                            <span>{timelineBadge.label}</span>
+                          </span>
+                        ) : timeline ? (
+                          <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{timeline}</span>
+                        ) : (
+                          <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Not specified</span>
+                        )}
                       </td>
                       <td style={{ padding: '0.75rem' }}>
                         {grant.source_url ? (

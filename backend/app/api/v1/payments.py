@@ -171,24 +171,32 @@ async def get_payment_history(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get user's payment history."""
+    """Get user's payment history with linked assessment counts."""
     payments = db.query(models.Payment).filter(
         models.Payment.user_id == current_user.id
     ).order_by(models.Payment.created_at.desc()).all()
     
-    return [
-        {
+    result = []
+    for p in payments:
+        # Count linked assessments
+        linked_count = db.query(models.AssessmentPurchase).filter(
+            models.AssessmentPurchase.payment_id == p.id
+        ).count()
+        
+        result.append({
             "id": p.id,
             "amount": p.amount,
             "currency": p.currency,
             "status": p.status,
             "created_at": p.created_at.isoformat(),
             "assessment_count": p.assessment_count,
+            "linked_assessments": linked_count,
+            "missing_assessments": max(0, p.assessment_count - linked_count) if p.status == "succeeded" else 0,
             "paystack_reference": p.paystack_reference,
             "payment_type": p.payment_type
-        }
-        for p in payments
-    ]
+        })
+    
+    return result
 
 
 @router.get("/analytics")

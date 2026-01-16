@@ -5,7 +5,7 @@ Grant management endpoints.
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel, field_serializer
 from app.db.database import get_db
 from app.db import models
@@ -14,7 +14,7 @@ from app.services.grant_extraction_service import GrantExtractionService
 from app.core.config import settings
 from app.core.sanitization import sanitize_html, sanitize_text, sanitize_url
 from app.services.slack_service import send_grant_approval_notification
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,17 @@ class GrantExtractionResponse(BaseModel):
     source_url: str
 
 
+class GrantNormalizationResponse(BaseModel):
+    """Normalization fields for grant presentation."""
+    canonical_title: Optional[str] = None
+    canonical_summary: Optional[str] = None
+    timeline_status: Optional[str] = None  # 'active', 'closed', 'rolling', 'unknown'
+    confidence_level: Optional[str] = None  # 'high', 'medium', 'low'
+    
+    class Config:
+        from_attributes = True
+
+
 class GrantResponse(BaseModel):
     id: int
     name: str
@@ -78,6 +89,8 @@ class GrantResponse(BaseModel):
     source_url: Optional[str]
     approval_status: str
     created_at: datetime
+    # Normalization fields (optional - only if normalization exists and is approved)
+    normalization: Optional[GrantNormalizationResponse] = None
     
     @field_serializer('created_at')
     def serialize_created_at(self, value: datetime, _info):
@@ -126,10 +139,41 @@ async def create_grant(
     # All new grants require admin approval
     grant_dict['approval_status'] = 'pending'
     
+    # Store raw data (immutable source of record)
+    # For manual creation, use provided name/description as raw data
+    if not grant_dict.get('raw_title'):
+        grant_dict['raw_title'] = grant_dict.get('name') or ''
+    if not grant_dict.get('raw_content'):
+        grant_dict['raw_content'] = grant_dict.get('description') or grant_dict.get('mission') or ''
+    if not grant_dict.get('fetched_at'):
+        grant_dict['fetched_at'] = datetime.now(timezone.utc)
+    
     db_grant = models.Grant(**grant_dict)
     db.add(db_grant)
     db.commit()
     db.refresh(db_grant)
+    
+    # Generate draft normalization (non-blocking, for Slack notification)
+    draft_normalization = None
+    try:
+        from app.services.normalization_service import NormalizationService
+        normalization_service = NormalizationService()
+        
+        # Prepare grant dict for normalization service
+        grant_data_dict = {
+            'name': db_grant.name,
+            'description': db_grant.description,
+            'mission': db_grant.mission,
+            'deadline': db_grant.deadline,
+            'decision_date': db_grant.decision_date,
+            'award_amount': db_grant.award_amount,
+        }
+        
+        # Generate draft normalization
+        draft_normalization = normalization_service.generate_normalization(grant_data_dict)
+    except Exception as e:
+        logger.warning(f"Failed to generate draft normalization for grant {db_grant.id}: {e}", exc_info=True)
+        # Non-critical - continue without normalization
     
     # Send Slack notification for admin approval (non-blocking)
     # This happens for both successful extraction and fallback creation
@@ -137,7 +181,8 @@ async def create_grant(
         send_grant_approval_notification(
             grant_id=db_grant.id,
             grant_name=db_grant.name,
-            grant_url=db_grant.source_url or ""
+            grant_url=db_grant.source_url or "",
+            draft_normalization=draft_normalization
         )
     except Exception as e:
         logger.error(f"Exception sending Slack notification for grant {db_grant.id}: {e}", exc_info=True)
@@ -247,10 +292,19 @@ async def create_grant_from_url(
             except:
                 name = "Grant from URL"
         
+        # For fallback case, still store raw data (even if minimal)
+        raw_title = name
+        raw_content = ''  # No content scraped in fallback case
+        fetched_at = datetime.now(timezone.utc)
+        
         db_grant = models.Grant(
             name=sanitize_text(name),
             source_url=validated_url,  # Use validated URL, not original
             description=None,  # User can fill in later
+            # Raw data fields (immutable source of record)
+            raw_title=raw_title,
+            raw_content=raw_content,
+            fetched_at=fetched_at,
             approval_status='pending',  # All new grants require admin approval
         )
         
@@ -262,12 +316,35 @@ async def create_grant_from_url(
     db.commit()
     db.refresh(db_grant)
     
+    # Generate draft normalization (non-blocking, for Slack notification)
+    draft_normalization = None
+    try:
+        from app.services.normalization_service import NormalizationService
+        normalization_service = NormalizationService()
+        
+        # Prepare grant dict for normalization service
+        grant_dict = {
+            'name': db_grant.name,
+            'description': db_grant.description,
+            'mission': db_grant.mission,
+            'deadline': db_grant.deadline,
+            'decision_date': db_grant.decision_date,
+            'award_amount': db_grant.award_amount,
+        }
+        
+        # Generate draft normalization
+        draft_normalization = normalization_service.generate_normalization(grant_dict)
+    except Exception as e:
+        logger.warning(f"Failed to generate draft normalization for grant {db_grant.id}: {e}", exc_info=True)
+        # Non-critical - continue without normalization
+    
     # Send Slack notification for admin approval (non-blocking)
     try:
         send_grant_approval_notification(
             grant_id=db_grant.id,
             grant_name=db_grant.name,
-            grant_url=db_grant.source_url or ""
+            grant_url=db_grant.source_url or "",
+            draft_normalization=draft_normalization
         )
     except Exception as e:
         logger.error(f"Exception sending Slack notification for grant {db_grant.id}: {e}", exc_info=True)
@@ -384,7 +461,7 @@ async def list_grants(
     Regular users: Only see approved grants.
     Admins: Can see all grants including pending if include_pending=true.
     """
-    query = db.query(models.Grant)
+    query = db.query(models.Grant).options(selectinload(models.Grant.normalization))
     
     # Regular users only see approved grants
     if not current_user or not current_user.is_superuser:
@@ -453,7 +530,9 @@ async def get_grant(
     db: Session = Depends(get_db)
 ):
     """Get a specific grant."""
-    grant = db.query(models.Grant).filter(models.Grant.id == grant_id).first()
+    grant = db.query(models.Grant).options(selectinload(models.Grant.normalization)).filter(
+        models.Grant.id == grant_id
+    ).first()
     if not grant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

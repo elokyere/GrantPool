@@ -22,7 +22,7 @@ from app.services.slack_service import (
     verify_slack_admin,
     parse_button_value
 )
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -198,8 +198,12 @@ async def handle_slack_interaction(
         entity_id = parsed["entity_id"]
         action_type = parsed["action"]
         
+        logger.info(f"Parsed button value - entity_type: {entity_type}, entity_id: {entity_id}, action: {action_type}")
+        logger.info(f"Checking if action matches - entity_type=='grant': {entity_type == 'grant'}, action_id in allowlist: {action_id in ['grant_approve', 'grant_reject']}")
+        
         # Execute action (strict allowlist)
         if entity_type == "grant" and action_id in ["grant_approve", "grant_reject"]:
+            logger.info(f"Calling _handle_grant_approval with grant_id={entity_id}, action={action_type}")
             # Process the action and return response
             # Note: Must return within 3 seconds, so keep database operations fast
             return await _handle_grant_approval(
@@ -210,12 +214,12 @@ async def handle_slack_interaction(
             )
         
         # Unknown action - return error message
-        logger.warning(f"Unknown Slack action: {action_id}")
+        logger.warning(f"Unknown Slack action: action_id={action_id}, entity_type={entity_type}, entity_id={entity_id}, action={action_type}")
         return Response(
             status_code=200,
             content=json.dumps({
                 "response_type": "ephemeral",
-                "text": f"Unknown action: {action_id}"
+                "text": f"Unknown action: {action_id}. Entity: {entity_type}, ID: {entity_id}, Action: {action_type}"
             }),
             media_type="application/json"
         )
@@ -242,6 +246,13 @@ async def _handle_grant_approval(
     
     This executes exactly one database operation and is idempotent.
     """
+    logger.info("=" * 60)
+    logger.info(f"_handle_grant_approval CALLED")
+    logger.info(f"  grant_id: {grant_id}")
+    logger.info(f"  action: {action}")
+    logger.info(f"  slack_user_id: {slack_user_id}")
+    logger.info("=" * 60)
+    
     try:
         # Find grant
         grant = db.query(models.Grant).filter(models.Grant.id == grant_id).first()
@@ -274,14 +285,73 @@ async def _handle_grant_approval(
         # Execute action
         if action == "approve":
             grant.approval_status = "approved"
-            grant.approved_at = datetime.now()
+            grant.approved_at = datetime.now(timezone.utc)
             logger.info(f"Setting grant {grant_id} status to 'approved'")
             # Note: approved_by requires User model lookup - simplified for now
             # In production, map slack_user_id to User ID or store slack_user_id
             
+            # Generate and save normalization on approval
+            # This creates the canonical presentation layer from raw grant data
+            try:
+                from app.services.normalization_service import NormalizationService
+                normalization_service = NormalizationService()
+                
+                # Prepare grant dict for normalization service
+                grant_dict = {
+                    'name': grant.name,
+                    'description': grant.description,
+                    'mission': grant.mission,
+                    'deadline': grant.deadline,
+                    'decision_date': grant.decision_date,
+                    'award_amount': grant.award_amount,
+                }
+                
+                # Generate normalization
+                normalization_data = normalization_service.generate_normalization(grant_dict)
+                
+                # Check if normalization already exists for this grant
+                existing_norm = db.query(models.GrantNormalization).filter(
+                    models.GrantNormalization.grant_id == grant_id
+                ).first()
+                
+                if existing_norm:
+                    # Update existing normalization
+                    existing_norm.canonical_title = normalization_data.get('canonical_title')
+                    existing_norm.canonical_summary = normalization_data.get('canonical_summary')
+                    existing_norm.timeline_status = normalization_data.get('timeline_status')
+                    existing_norm.confidence_level = normalization_data.get('confidence_level')
+                    existing_norm.normalized_by = 'admin'
+                    existing_norm.approved_at = datetime.now(timezone.utc)
+                    existing_norm.revision_notes = f"Approved via Slack by {slack_user_id}"
+                    existing_norm.updated_at = datetime.now(timezone.utc)
+                    logger.info(f"Updated existing normalization for grant {grant_id}")
+                else:
+                    # Create new normalization
+                    new_norm = models.GrantNormalization(
+                        grant_id=grant_id,
+                        canonical_title=normalization_data.get('canonical_title'),
+                        canonical_summary=normalization_data.get('canonical_summary'),
+                        timeline_status=normalization_data.get('timeline_status'),
+                        confidence_level=normalization_data.get('confidence_level'),
+                        normalized_by='admin',
+                        approved_at=datetime.now(timezone.utc),
+                        revision_notes=f"Approved via Slack by {slack_user_id}"
+                    )
+                    db.add(new_norm)
+                    logger.info(f"Created new normalization for grant {grant_id}")
+                
+            except Exception as norm_error:
+                # Log normalization error but don't fail approval
+                # Grant approval succeeds even if normalization generation fails
+                logger.warning(
+                    f"Failed to generate/save normalization for grant {grant_id}: {norm_error}",
+                    exc_info=True
+                )
+                # Continue with approval - normalization can be added later
+            
         elif action == "reject":
             grant.approval_status = "rejected"
-            grant.approved_at = datetime.now()
+            grant.approved_at = datetime.now(timezone.utc)
             grant.rejection_reason = "Rejected via Slack admin interface"
             logger.info(f"Setting grant {grant_id} status to 'rejected'")
         else:
@@ -298,7 +368,7 @@ async def _handle_grant_approval(
         # Log action (audit trail)
         logger.info(
             f"Grant {grant_id} {action}d via Slack by user {slack_user_id} "
-            f"at {datetime.now()}"
+            f"at {datetime.now(timezone.utc)}"
         )
         
         # Commit
