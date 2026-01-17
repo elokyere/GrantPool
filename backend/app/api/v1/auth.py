@@ -4,6 +4,7 @@ Authentication endpoints.
 
 from datetime import timedelta, datetime, timezone
 import secrets
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.core.middleware import get_rate_limiter
 
@@ -187,7 +188,18 @@ async def forgot_password(
     
     # Send password reset email
     from app.services.email_service import send_password_reset_email
+    
+    logger = logging.getLogger(__name__)
     email_sent = send_password_reset_email(user.email, reset_token)
+    
+    # Log email sending status (even in production for debugging)
+    if email_sent:
+        logger.info(f"Password reset email sent successfully to {user.email}")
+    else:
+        logger.error(
+            f"Password reset email FAILED to send to {user.email}. "
+            f"Check SendGrid configuration and logs for details."
+        )
     
     # In development, also return token if email failed (for testing)
     response = {
