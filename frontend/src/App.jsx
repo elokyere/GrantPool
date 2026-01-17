@@ -8,6 +8,7 @@ import ForgotPassword from './pages/ForgotPassword'
 import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import Grants from './pages/Grants'
+import Settings from './pages/Settings'
 import Layout from './components/Layout'
 import './App.css'
 
@@ -76,6 +77,7 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="projects" element={<Projects />} />
         <Route path="grants" element={<Grants />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   )

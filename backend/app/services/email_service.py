@@ -117,15 +117,11 @@ class EmailService:
             
             sendgrid_api_key = getattr(settings, 'SENDGRID_API_KEY', '')
             if not sendgrid_api_key:
-                error_msg = "SendGrid API key not configured - SENDGRID_API_KEY environment variable is empty or missing"
-                logger.error(error_msg)
-                print(f"[SENDGRID] ❌ {error_msg}", flush=True)
+                logger.error("SendGrid API key not configured - SENDGRID_API_KEY environment variable is empty or missing")
                 return False
             
             # Log configuration check (without exposing key)
-            log_msg = f"SendGrid: Sending email to {to_email} from {self.from_email} (provider: {self.provider})"
-            logger.info(log_msg)
-            print(f"[SENDGRID] {log_msg}", flush=True)
+            logger.info(f"SendGrid: Sending email to {to_email} from {self.from_email} (provider: {self.provider})")
             
             message = Mail(
                 from_email=(self.from_email, self.from_name),
@@ -141,9 +137,7 @@ class EmailService:
             response = sg.send(message)
             
             if response.status_code in [200, 201, 202]:
-                success_msg = f"SendGrid email sent successfully to {to_email} (status: {response.status_code})"
-                logger.info(success_msg)
-                print(f"[SENDGRID] ✅ {success_msg}", flush=True)
+                logger.info(f"SendGrid email sent successfully to {to_email} (status: {response.status_code})")
                 return True
             else:
                 # Log detailed error information
@@ -153,29 +147,23 @@ class EmailService:
                 except:
                     error_body = str(response.body) if response.body else "No error body"
                 
-                error_msg = (
+                logger.error(
                     f"SendGrid email send failed to {to_email}: "
                     f"status_code={response.status_code}, "
                     f"headers={dict(response.headers) if hasattr(response, 'headers') else 'N/A'}, "
                     f"body={error_body}"
                 )
-                logger.error(error_msg)
-                print(f"[SENDGRID] ❌ {error_msg}", flush=True)
                 return False
                 
         except ImportError:
-            error_msg = "SendGrid library not installed. Install with: pip install sendgrid"
-            logger.error(error_msg)
-            print(f"[SENDGRID] ❌ {error_msg}", flush=True)
+            logger.error("SendGrid library not installed. Install with: pip install sendgrid")
             return False
         except Exception as e:
             import traceback
-            error_msg = (
+            logger.error(
                 f"SendGrid email send failed to {to_email}: {str(e)}\n"
                 f"Traceback: {traceback.format_exc()}"
             )
-            logger.error(error_msg)
-            print(f"[SENDGRID] ❌ {error_msg}", flush=True)
             return False
     
     def _send_via_ses(

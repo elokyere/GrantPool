@@ -326,7 +326,7 @@ function Landing() {
                 <path d="M8 26C8 22 11 19 16 19C21 19 24 22 24 26" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 <circle cx="20" cy="10" r="3" fill="currentColor"/>
               </svg>
-              <p style={{ margin: 0, fontSize: '0.95rem', color: '#374151', fontWeight: '500' }}>No Human Reviewers</p>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#374151', fontWeight: '500' }}>Private & Encrypted</p>
             </div>
             <div className="privacy-badge">
               <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom: '0.75rem' }}>

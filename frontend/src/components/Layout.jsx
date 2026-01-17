@@ -25,6 +25,7 @@ function Layout() {
             <Link to="/dashboard" className="nav-link">Dashboard</Link>
             <Link to="/dashboard/projects" className="nav-link">Projects</Link>
             <Link to="/dashboard/grants" className="nav-link">Grants</Link>
+            <Link to="/dashboard/settings" className="nav-link">Settings</Link>
           </div>
           <div className="nav-user">
             <button 

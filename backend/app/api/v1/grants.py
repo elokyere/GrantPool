@@ -460,7 +460,11 @@ async def list_grants(
     
     Regular users: Only see approved grants.
     Admins: Can see all grants including pending if include_pending=true.
+    Test grants are automatically filtered out (grants with "test" in name or "example.com" in URL).
+    Grants with missing required fields (Name, Summary, Timeline, or URL) are also filtered out.
     """
+    from sqlalchemy import or_, func, and_
+    
     query = db.query(models.Grant).options(selectinload(models.Grant.normalization))
     
     # Regular users only see approved grants
@@ -469,6 +473,37 @@ async def list_grants(
     elif not include_pending:
         # Admins can filter by default
         query = query.filter(models.Grant.approval_status == 'approved')
+    
+    # Filter out test grants (case-insensitive)
+    # Exclude grants with "test" in name or "example.com" in URL
+    query = query.filter(
+        ~func.lower(models.Grant.name).contains('test'),
+        ~or_(
+            func.lower(models.Grant.source_url).contains('example.com'),
+            func.lower(models.Grant.source_url).contains('test')
+        )
+    )
+    
+    # Filter out grants with missing required fields
+    # Must have: Name (not null/empty), Summary (description or mission), Timeline (deadline or decision_date), URL (source_url)
+    query = query.filter(
+        # Name must exist and not be empty
+        models.Grant.name.isnot(None),
+        models.Grant.name != '',
+        # Summary: must have either description or mission
+        or_(
+            and_(models.Grant.description.isnot(None), models.Grant.description != ''),
+            and_(models.Grant.mission.isnot(None), models.Grant.mission != '')
+        ),
+        # Timeline: must have either deadline or decision_date
+        or_(
+            and_(models.Grant.deadline.isnot(None), models.Grant.deadline != ''),
+            and_(models.Grant.decision_date.isnot(None), models.Grant.decision_date != '')
+        ),
+        # URL must exist and not be empty
+        models.Grant.source_url.isnot(None),
+        models.Grant.source_url != ''
+    )
     
     grants = query.order_by(models.Grant.created_at.desc()).offset(skip).limit(limit).all()
     return grants
@@ -539,4 +574,53 @@ async def get_grant(
             detail="Grant not found"
         )
     return grant
+
+
+@router.delete("/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_grant(
+    grant_id: int,
+    admin_user: models.User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a grant (admin only).
+    
+    This will also delete associated:
+    - Grant normalization records
+    - Set grant_id to NULL for evaluations linked to this grant (evaluations are preserved)
+    """
+    from sqlalchemy import update
+    
+    grant = db.query(models.Grant).filter(models.Grant.id == grant_id).first()
+    if not grant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Grant not found"
+        )
+    
+    grant_name = grant.name
+    
+    # Set grant_id to NULL for evaluations linked to this grant (preserve evaluations)
+    evaluations_count = db.query(models.Evaluation).filter(
+        models.Evaluation.grant_id == grant_id
+    ).count()
+    if evaluations_count > 0:
+        db.execute(
+            update(models.Evaluation)
+            .where(models.Evaluation.grant_id == grant_id)
+            .values(grant_id=None)
+        )
+        logger.info(f"Unlinked {evaluations_count} evaluation(s) from grant {grant_id}")
+    
+    # Delete associated normalization if exists
+    if grant.normalization:
+        db.delete(grant.normalization)
+    
+    # Delete the grant
+    db.delete(grant)
+    db.commit()
+    
+    logger.info(f"Admin {admin_user.id} deleted grant {grant_id}: {grant_name}")
+    
+    return None
 

@@ -171,18 +171,10 @@ async def forgot_password(
     In production, this would send an email with the reset token.
     For now, returns the token (for testing purposes).
     """
-    logger = logging.getLogger(__name__)
-    
-    # Explicit logging at start
-    logger.info(f"[FORGOT-PASSWORD] Request received for email: {forgot_data.email}")
-    print(f"[FORGOT-PASSWORD] Request received for email: {forgot_data.email}", flush=True)
-    
     user = db.query(models.User).filter(models.User.email == forgot_data.email).first()
     
     # Always return success to prevent email enumeration
     if not user:
-        logger.info(f"[FORGOT-PASSWORD] User not found for email: {forgot_data.email}")
-        print(f"[FORGOT-PASSWORD] User not found for email: {forgot_data.email}", flush=True)
         return {"message": "If that email exists, a password reset link has been sent."}
     
     # Generate reset token
@@ -194,29 +186,19 @@ async def forgot_password(
     user.password_reset_expires = expires_at
     db.commit()
     
-    logger.info(f"[FORGOT-PASSWORD] Reset token generated for user {user.id} ({user.email})")
-    print(f"[FORGOT-PASSWORD] Reset token generated for user {user.id} ({user.email})", flush=True)
-    
     # Send password reset email
     from app.services.email_service import send_password_reset_email
     
-    logger.info(f"[FORGOT-PASSWORD] Attempting to send email to {user.email}")
-    print(f"[FORGOT-PASSWORD] Attempting to send email to {user.email}", flush=True)
-    
+    logger = logging.getLogger(__name__)
     email_sent = send_password_reset_email(user.email, reset_token)
     
     # Log email sending status (even in production for debugging)
     if email_sent:
-        logger.info(f"[FORGOT-PASSWORD] ✅ Password reset email sent successfully to {user.email}")
-        print(f"[FORGOT-PASSWORD] ✅ Password reset email sent successfully to {user.email}", flush=True)
+        logger.info(f"Password reset email sent successfully to {user.email}")
     else:
         logger.error(
-            f"[FORGOT-PASSWORD] ❌ Password reset email FAILED to send to {user.email}. "
+            f"Password reset email FAILED to send to {user.email}. "
             f"Check SendGrid configuration and logs for details."
-        )
-        print(
-            f"[FORGOT-PASSWORD] ❌ Password reset email FAILED to send to {user.email}. "
-            f"Check SendGrid configuration and logs for details.", flush=True
         )
     
     # In development, also return token if email failed (for testing)
