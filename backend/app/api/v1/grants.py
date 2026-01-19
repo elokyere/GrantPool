@@ -14,12 +14,65 @@ from app.services.grant_extraction_service import GrantExtractionService
 from app.core.config import settings
 from app.core.sanitization import sanitize_html, sanitize_text, sanitize_url
 from app.services.slack_service import send_grant_approval_notification
+from app.services.decision_readiness_service import DecisionReadinessService
+from app.services.source_verification_service import SourceVerificationService
 from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def compute_grant_readiness(grant: models.Grant, db: Session) -> None:
+    """
+    Compute and set decision readiness fields for a grant.
+    
+    This is called after grant creation/update to auto-compute:
+    - 5 bucket states
+    - Decision readiness label
+    - Status of knowledge
+    - Scope
+    """
+    try:
+        # Convert grant to dict for service
+        grant_dict = {
+            'deadline': grant.deadline,
+            'decision_date': grant.decision_date,
+            'award_amount': grant.award_amount,
+            'award_structure': grant.award_structure,
+            'mission': grant.mission,
+            'preferred_applicants': grant.preferred_applicants,
+            'eligibility': grant.eligibility,
+            'application_requirements': grant.application_requirements,
+            'recipient_patterns': grant.recipient_patterns or {},
+            'description': grant.description,
+        }
+        
+        # Compute all bucket states and derived fields
+        results = DecisionReadinessService.compute_all_buckets(grant_dict)
+        
+        # Infer scope
+        scope, _ = DecisionReadinessService.infer_scope(grant_dict)
+        
+        # Update grant with computed values
+        grant.timeline_clarity = results['timeline_clarity']
+        grant.winner_signal = results['winner_signal']
+        grant.mission_specificity = results['mission_specificity']
+        grant.application_burden = results['application_burden']
+        grant.award_structure_clarity = results['award_structure_clarity']
+        grant.decision_readiness = results['decision_readiness']
+        grant.status_of_knowledge = results['status_of_knowledge']
+        grant.scope = scope
+        grant.evaluation_complete = True
+        
+        db.commit()
+        
+    except Exception as e:
+        logger.error(f"Error computing readiness for grant {grant.id}: {str(e)}", exc_info=True)
+        db.rollback()
+        # Don't fail grant creation if readiness computation fails
+        raise
 
 
 class GrantCreate(BaseModel):
@@ -92,8 +145,26 @@ class GrantResponse(BaseModel):
     # Normalization fields (optional - only if normalization exists and is approved)
     normalization: Optional[GrantNormalizationResponse] = None
     
+    # Decision Readiness System fields
+    timeline_clarity: Optional[str] = None  # 'known', 'partial', 'unknown'
+    winner_signal: Optional[str] = None
+    mission_specificity: Optional[str] = None
+    application_burden: Optional[str] = None
+    award_structure_clarity: Optional[str] = None
+    decision_readiness: Optional[str] = None  # 'Ready for Evaluation', 'Partial — Missing Signals', 'Low Confidence Grant'
+    status_of_knowledge: Optional[str] = None  # 'Well-Specified', 'Partially Opaque', 'Structurally Vague'
+    scope: Optional[str] = None  # 'Local', 'National', 'International', 'Unclear'
+    source_verified: Optional[bool] = None
+    source_verified_checked_at: Optional[datetime] = None
+    evaluation_complete: Optional[bool] = None
+    
     @field_serializer('created_at')
     def serialize_created_at(self, value: datetime, _info):
+        """Serialize datetime to ISO format string."""
+        return value.isoformat() if value else None
+    
+    @field_serializer('source_verified_checked_at')
+    def serialize_source_verified_checked_at(self, value: datetime, _info):
         """Serialize datetime to ISO format string."""
         return value.isoformat() if value else None
     
@@ -152,6 +223,13 @@ async def create_grant(
     db.add(db_grant)
     db.commit()
     db.refresh(db_grant)
+    
+    # Auto-compute decision readiness fields
+    try:
+        compute_grant_readiness(db_grant, db)
+    except Exception as e:
+        logger.warning(f"Failed to compute decision readiness for grant {db_grant.id}: {e}", exc_info=True)
+        # Non-critical - continue without readiness computation
     
     # Generate draft normalization (non-blocking, for Slack notification)
     draft_normalization = None
@@ -276,6 +354,7 @@ async def create_grant_from_url(
             restrictions=[sanitize_text(res) for res in (extracted_data.get('restrictions') or [])],
             source_url=extracted_url,
             approval_status='pending',  # All new grants require admin approval
+            recipient_patterns=extracted_data.get('recipient_patterns'),  # Include recipient patterns if extracted
         )
         
     except Exception as e:
@@ -315,6 +394,13 @@ async def create_grant_from_url(
     db.add(db_grant)
     db.commit()
     db.refresh(db_grant)
+    
+    # Auto-compute decision readiness fields
+    try:
+        compute_grant_readiness(db_grant, db)
+    except Exception as e:
+        logger.warning(f"Failed to compute decision readiness for grant {db_grant.id}: {e}", exc_info=True)
+        # Non-critical - continue without readiness computation
     
     # Generate draft normalization (non-blocking, for Slack notification)
     draft_normalization = None

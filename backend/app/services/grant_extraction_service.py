@@ -63,7 +63,19 @@ class GrantExtractionService:
         # Step 2: Extract grant information using Claude
         grant_data = self._extract_with_claude(url, raw_content)
         
-        # Step 3: Store raw data (immutable source of record)
+        # Step 3: Extract recipient patterns and competition stats (if available)
+        try:
+            recipient_patterns = self._extract_recipient_patterns(url, raw_content, grant_data.get('name'))
+            if recipient_patterns:
+                grant_data['recipient_patterns'] = recipient_patterns
+        except Exception as e:
+            # Non-critical - continue without recipient patterns
+            # Log but don't fail the extraction
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to extract recipient patterns: {str(e)}")
+        
+        # Step 4: Store raw data (immutable source of record)
         # raw_title is the extracted name before any sanitization/normalization
         raw_title = grant_data.get('name') or None
         grant_data['raw_title'] = raw_title
@@ -306,5 +318,217 @@ Extract all available grant information and return as JSON."""
             validated['restrictions'] = [str(validated['restrictions'])]
         
         return validated
+    
+    def _extract_recipient_patterns(self, url: str, page_content: str, grant_name: Optional[str] = None) -> Optional[Dict]:
+        """
+        Extract recipient patterns and competition statistics from grant page.
+        
+        This method attempts to extract:
+        - Past recipient profiles (career stage, organization type, country, etc.)
+        - Competition statistics (applications received, awards made, acceptance rate)
+        
+        All extracted data is tagged with source ("llm") and confidence levels.
+        
+        Args:
+            url: The source URL
+            page_content: The scraped page content
+            grant_name: Optional grant name for context
+            
+        Returns:
+            Dictionary with recipient_patterns structure or None if no data found
+        """
+        system_prompt = """You are a grant data extraction assistant. Extract recipient patterns and competition statistics from grant page content.
+
+Extract the following information if clearly available:
+
+1. PAST RECIPIENTS (if listed):
+   - Extract individual recipient profiles with:
+     * career_stage (e.g., "Early-career", "Mid-career", "Senior")
+     * organization_type (e.g., "NGO", "University", "Government")
+     * country (ISO 2-letter code if possible, or country name)
+     * education_level (if mentioned)
+     * year (award year if mentioned)
+   - Tag each field with confidence: "high" (explicitly stated), "medium" (inferred from context), "low" (weak inference)
+   - Source for all recipient data: "llm"
+
+2. COMPETITION STATISTICS (if available):
+   - applications_received (number)
+   - awards_made (number)
+   - acceptance_rate (percentage, e.g., 12.5 for 12.5%)
+   - year (the year these stats are for)
+   - source: "official" if explicitly stated, "estimated" if calculated from numbers, "unknown" if not available
+   - confidence: "high" if official, "medium" if estimated, "unknown" if not available
+   - notes: Brief explanation of where the data came from
+
+IMPORTANT RULES:
+- Only extract data that is CLEARLY stated or can be CONFIDENTLY inferred
+- If recipient data is insufficient (< 5 recipients), still extract but note low confidence
+- If competition stats are not explicitly stated, set source to "unknown" and confidence to "unknown"
+- Do NOT guess or invent data
+- If no recipient or competition data is available, return null for that section
+
+Return ONLY valid JSON in this format:
+{
+  "recipients": [
+    {
+      "career_stage": "string or null",
+      "career_stage_confidence": "high|medium|low",
+      "career_stage_source": "llm",
+      "organization_type": "string or null",
+      "organization_type_confidence": "high|medium|low",
+      "organization_type_source": "llm",
+      "country": "string or null",
+      "country_confidence": "high|medium|low",
+      "country_source": "llm",
+      "education_level": "string or null",
+      "education_level_confidence": "high|medium|low",
+      "education_level_source": "llm",
+      "year": integer or null,
+      "locked": false
+    }
+  ] or null,
+  "competition_stats": {
+    "applications_received": integer or null,
+    "awards_made": integer or null,
+    "acceptance_rate": float or null,
+    "year": integer or null,
+    "source": "official|estimated|unknown",
+    "confidence": "high|medium|low|unknown",
+    "notes": "string or null"
+  } or null
+}
+
+If no recipient or competition data is found, return:
+{
+  "recipients": null,
+  "competition_stats": null
+}"""
+
+        user_message = f"""Extract recipient patterns and competition statistics from this grant page:
+
+Grant Name: {grant_name or 'Unknown'}
+URL: {url}
+
+Page Content:
+{page_content[:40000]}  # Limit to avoid token limits
+
+Extract recipient profiles and competition statistics if available. Return as JSON."""
+
+        try:
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=3000,  # More tokens for recipient data
+                system=system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": user_message
+                    }
+                ]
+            )
+            
+            # Extract JSON from response
+            response_text = message.content[0].text.strip()
+            
+            # Remove markdown code blocks if present
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            elif response_text.startswith("```"):
+                response_text = response_text[3:]
+            
+            if response_text.endswith("```"):
+                response_text = response_text[:-3].strip()
+            
+            # Parse JSON
+            try:
+                patterns_data = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                # Try to extract JSON from text if wrapped
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    patterns_data = json.loads(json_match.group())
+                else:
+                    # If parsing fails, return None (non-critical)
+                    return None
+            
+            # Validate structure
+            if not isinstance(patterns_data, dict):
+                return None
+            
+            # Validate recipients array
+            recipients = patterns_data.get("recipients")
+            if recipients is not None:
+                if not isinstance(recipients, list):
+                    recipients = None
+                else:
+                    # Validate each recipient has required fields
+                    validated_recipients = []
+                    for recipient in recipients:
+                        if isinstance(recipient, dict):
+                            # Ensure all required fields exist with defaults
+                            validated_recipient = {
+                                "career_stage": recipient.get("career_stage"),
+                                "career_stage_confidence": recipient.get("career_stage_confidence", "low"),
+                                "career_stage_source": recipient.get("career_stage_source", "llm"),
+                                "organization_type": recipient.get("organization_type"),
+                                "organization_type_confidence": recipient.get("organization_type_confidence", "low"),
+                                "organization_type_source": recipient.get("organization_type_source", "llm"),
+                                "country": recipient.get("country"),
+                                "country_confidence": recipient.get("country_confidence", "low"),
+                                "country_source": recipient.get("country_source", "llm"),
+                                "education_level": recipient.get("education_level"),
+                                "education_level_confidence": recipient.get("education_level_confidence", "low"),
+                                "education_level_source": recipient.get("education_level_source", "llm"),
+                                "year": recipient.get("year"),
+                                "locked": False
+                            }
+                            validated_recipients.append(validated_recipient)
+                    recipients = validated_recipients if validated_recipients else None
+            
+            # Validate competition_stats
+            competition_stats = patterns_data.get("competition_stats")
+            if competition_stats is not None:
+                if not isinstance(competition_stats, dict):
+                    competition_stats = None
+                else:
+                    # Ensure required fields
+                    validated_stats = {
+                        "applications_received": competition_stats.get("applications_received"),
+                        "awards_made": competition_stats.get("awards_made"),
+                        "acceptance_rate": competition_stats.get("acceptance_rate"),
+                        "year": competition_stats.get("year"),
+                        "source": competition_stats.get("source", "unknown"),
+                        "confidence": competition_stats.get("confidence", "unknown"),
+                        "notes": competition_stats.get("notes")
+                    }
+                    # Calculate acceptance_rate if we have applications and awards
+                    if validated_stats["applications_received"] and validated_stats["awards_made"]:
+                        if not validated_stats["acceptance_rate"]:
+                            try:
+                                rate = (validated_stats["awards_made"] / validated_stats["applications_received"]) * 100
+                                validated_stats["acceptance_rate"] = round(rate, 2)
+                                if validated_stats["source"] == "unknown":
+                                    validated_stats["source"] = "estimated"
+                                    validated_stats["confidence"] = "medium"
+                                    validated_stats["notes"] = "Calculated from applications and awards numbers"
+                            except (ZeroDivisionError, TypeError):
+                                pass
+                    competition_stats = validated_stats
+            
+            # Return None if both are null
+            if recipients is None and competition_stats is None:
+                return None
+            
+            return {
+                "recipients": recipients,
+                "competition_stats": competition_stats
+            }
+            
+        except Exception as e:
+            # Non-critical - log and return None
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error extracting recipient patterns: {str(e)}")
+            return None
 
 
