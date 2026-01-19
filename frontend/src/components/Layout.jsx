@@ -35,7 +35,7 @@ function Layout() {
             >
               Report an Issue
             </button>
-            <span className="user-email">{user?.email}</span>
+            <span className="user-email">{user?.email || 'Loading...'}</span>
             <button onClick={handleLogout} className="btn btn-secondary">
               Logout
             </button>

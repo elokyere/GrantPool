@@ -4,6 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import ReportIssue from '../components/ReportIssue'
 import PrivacySecurityNotice from '../components/PrivacySecurityNotice'
+import FreeAssessmentDisplay from '../components/FreeAssessmentDisplay'
+import PaidAssessmentDisplay from '../components/PaidAssessmentDisplay'
+import LegacyEvaluationBadge from '../components/LegacyEvaluationBadge'
+import CreditConversionNotification from '../components/CreditConversionNotification'
 import '../App.css'
 
 function Dashboard() {
@@ -39,8 +43,14 @@ function Dashboard() {
   const [showReviewForm, setShowReviewForm] = useState(false)  // Show review/edit form
   const [extractingGrant, setExtractingGrant] = useState(false)  // Extraction in progress
   const [showAllEvaluations, setShowAllEvaluations] = useState(false)  // Toggle for showing all evaluations
+  const [evaluationSort, setEvaluationSort] = useState('most_recent')  // Sort option: 'most_recent', 'oldest_first', 'by_score'
+  const [showAllEvaluationsModal, setShowAllEvaluationsModal] = useState(false)  // Modal for viewing all evaluations
+  const [isAssessing, setIsAssessing] = useState(false)  // Local state to track assessment in progress
+  const [pendingEvaluationId, setPendingEvaluationId] = useState(null)  // Track newly created evaluation ID
 
   const queryClient = useQueryClient()
+
+  console.log('[Dashboard] Setting up queries')
 
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
@@ -95,6 +105,8 @@ function Dashboard() {
     placeholderData: [], // Ensure React Query always has an array
     initialData: [], // Set initial data to empty array
     select: (data) => Array.isArray(data) ? data : [], // Normalize data even from cache
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    staleTime: 0, // Always consider data stale, refetch immediately when invalidated
   })
 
   // Get single evaluation if ID provided
@@ -238,7 +250,27 @@ function Dashboard() {
       return response.data
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries(['evaluations'])
+      // Store the new evaluation ID and keep loading state active
+      setPendingEvaluationId(data.id.toString())
+      
+      // Immediately set the evaluation in the cache so it's available right away
+      queryClient.setQueryData(['evaluation', data.id.toString()], data)
+      
+      // Also add it to the evaluations list cache
+      queryClient.setQueryData(['evaluations'], (oldData) => {
+        if (Array.isArray(oldData)) {
+          // Check if evaluation already exists in the list
+          const exists = oldData.some(e => e && e.id === data.id)
+          if (!exists) {
+            return [data, ...oldData]
+          }
+          return oldData
+        }
+        return [data]
+      })
+      
+      // Force refetch to ensure we have the latest data
+      queryClient.refetchQueries({ queryKey: ['evaluations'] })
       queryClient.invalidateQueries(['creditStatus'])
       setShowForm(false)
       setShowPaywall(false)
@@ -267,6 +299,7 @@ function Dashboard() {
       setSearchParams({ evaluation: data.id.toString() })
     },
     onError: (error) => {
+      setIsAssessing(false)  // Clear loading state on error
       // If payment required, show paywall
       if (error.response?.status === 402) {
         setShowPaywall(true)
@@ -341,6 +374,9 @@ function Dashboard() {
       evaluationData.grant_id = parseInt(formData.grant_id)
     }
     
+    // Set loading state immediately
+    setIsAssessing(true)
+    
     // Check if free assessment available (first assessment with defaults)
     if (creditStatus?.free_available) {
       evaluateMutation.mutate(evaluationData)
@@ -350,6 +386,7 @@ function Dashboard() {
         // No payment_reference needed - bundle credits will be used automatically
     } else {
       // No free assessment or bundle credits - show paywall for full context assessment
+      setIsAssessing(false)  // Clear loading state
       setShowPaywall(true)
       setShowForm(false)
     }
@@ -505,7 +542,7 @@ function Dashboard() {
               window.history.replaceState({}, '', `${window.location.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`)
               
               // Refresh evaluations and navigate to result
-              queryClient.invalidateQueries(['evaluations'])
+              queryClient.refetchQueries({ queryKey: ['evaluations'] })
               queryClient.invalidateQueries(['creditStatus'])
               setSearchParams({ evaluation: evalResponse.data.id.toString() })
             } catch (evalError) {
@@ -556,7 +593,7 @@ function Dashboard() {
               window.history.replaceState({}, '', `${window.location.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`)
               
               // Refresh evaluations and navigate to refined result
-              queryClient.invalidateQueries(['evaluations'])
+              queryClient.refetchQueries({ queryKey: ['evaluations'] })
               setSearchParams({ evaluation: refineResponse.data.id.toString() })
             } catch (refineError) {
               console.error('Refinement failed:', refineError)
@@ -572,15 +609,95 @@ function Dashboard() {
     }
   }, [queryClient, setSearchParams])
 
-  if (projectsLoading || evaluationsLoading) {
-    return <div className="container">Loading...</div>
-  }
+  // Don't show full-page loading - show skeleton loaders instead for better UX
+  // This prevents the jarring "0" values from appearing
 
   // Ensure all data is arrays - defensive programming at component level
   // This is a safety net in case query functions somehow return non-arrays
   const evaluationsArray = Array.isArray(evaluations) ? evaluations : (evaluations ? [] : [])
   const projectsArray = Array.isArray(projects) ? projects : (projects ? [] : [])
   const grantsArray = Array.isArray(grants) ? grants : (grants ? [] : [])
+  
+  // Effect to clear loading state once evaluation is available
+  useEffect(() => {
+    if (pendingEvaluationId && isAssessing) {
+      const evaluationIdNum = parseInt(pendingEvaluationId)
+      // Check if evaluation is available (either from single query or in array)
+      const evaluationFound = singleEvaluation?.id === evaluationIdNum || 
+                             evaluationsArray.some(e => e && e.id === evaluationIdNum)
+      
+      // Also check if single query is no longer loading (even if evaluation not found yet, it means we tried)
+      if (evaluationFound || (!singleLoading && evaluationId === pendingEvaluationId)) {
+        // Small delay to ensure UI has updated
+        setTimeout(() => {
+          setIsAssessing(false)
+          setPendingEvaluationId(null)
+        }, 100)
+      }
+    }
+  }, [pendingEvaluationId, isAssessing, singleEvaluation, evaluationsArray, singleLoading, evaluationId])
+  
+  // Safety timeout: clear loading state after 30 seconds if evaluation doesn't load
+  useEffect(() => {
+    if (pendingEvaluationId && isAssessing) {
+      const timeout = setTimeout(() => {
+        console.warn('Evaluation loading timeout - clearing loading state')
+        setIsAssessing(false)
+        setPendingEvaluationId(null)
+      }, 30000) // 30 seconds
+      
+      return () => clearTimeout(timeout)
+    }
+  }, [pendingEvaluationId, isAssessing])
+  
+  // Clear pending state if user navigates away from the evaluation
+  useEffect(() => {
+    if (pendingEvaluationId && evaluationId && evaluationId !== pendingEvaluationId) {
+      // User navigated to a different evaluation - clear pending state
+      setPendingEvaluationId(null)
+      setIsAssessing(false)
+    }
+  }, [evaluationId, pendingEvaluationId])
+  
+  // Sort evaluations based on selected option
+  const sortedEvaluations = [...evaluationsArray].sort((a, b) => {
+    if (evaluationSort === 'most_recent') {
+      // Most recent first (newest to oldest)
+      const dateA = a.created_at ? new Date(a.created_at) : new Date(0)
+      const dateB = b.created_at ? new Date(b.created_at) : new Date(0)
+      return dateB - dateA
+    } else if (evaluationSort === 'oldest_first') {
+      // Oldest first
+      const dateA = a.created_at ? new Date(a.created_at) : new Date(0)
+      const dateB = b.created_at ? new Date(b.created_at) : new Date(0)
+      return dateA - dateB
+    } else if (evaluationSort === 'by_score') {
+      // By composite score (highest first)
+      return (b.composite_score || 0) - (a.composite_score || 0)
+    }
+    return 0
+  })
+  
+  // Default: show 5 most recent as compact cards
+  const defaultDisplayCount = 5
+  const displayedEvaluations = sortedEvaluations.slice(0, defaultDisplayCount)
+  
+  // Format date for display
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Unknown date'
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+  
+  // Get recommendation color - muted psychology-based palette
+  const getRecommendationColor = (rec) => {
+    switch (rec) {
+      case 'APPLY': return '#059669' // muted emerald-600
+      case 'CONDITIONAL': return '#d97706' // muted amber-600
+      case 'PASS': return '#dc2626' // muted red-600
+      default: return '#6b7280' // muted gray-500
+    }
+  }
   
   // Safe filtering with additional validation
   const applyCount = evaluationsArray.filter(e => e && e.recommendation === 'APPLY').length || 0
@@ -592,26 +709,85 @@ function Dashboard() {
     // Use the already-validated evaluationsArray from above
     const evaluation = singleEvaluation || evaluationsArray.find(e => e && e.id === parseInt(evaluationId))
     
-    if (singleLoading) {
-      return <div className="container">Loading...</div>
+    // Check if we're waiting for a pending evaluation (newly created)
+    const isWaitingForPending = pendingEvaluationId && evaluationId === pendingEvaluationId && isAssessing
+    
+    // Only show "Loading..." if we're not already showing the spinner overlay
+    // (i.e., if this is a manual navigation, not a newly created assessment)
+    if (singleLoading && !isWaitingForPending) {
+      return (
+        <div className="container" style={{ textAlign: 'center', padding: '3rem' }}>
+          <div style={{ fontSize: '1.125rem', color: '#6b7280', marginBottom: '1rem' }}>Loading evaluation...</div>
+          <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>Please wait while we fetch the evaluation from the database.</div>
+        </div>
+      )
     }
 
-    if (!evaluation) {
+    // Don't show "Evaluation not found" if we're waiting for a pending evaluation
+    // The spinner overlay should be visible instead
+    if (!evaluation && !isWaitingForPending && !singleLoading) {
       return <div className="container">Evaluation not found</div>
     }
+    
+    // If we're waiting for pending evaluation but it's not loaded yet, show loading state
+    // (the spinner overlay will be shown instead, but we still need to render something)
+    if (!evaluation && isWaitingForPending) {
+      return (
+        <div className="container" style={{ textAlign: 'center', padding: '3rem' }}>
+          <div style={{ fontSize: '1.125rem', color: '#6b7280', marginBottom: '1rem' }}>Loading evaluation...</div>
+          <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>Please wait while we fetch the evaluation from the database.</div>
+        </div>
+      )
+    }
+
+    // Safety check: ensure evaluation exists before accessing properties
+    if (!evaluation) {
+      return (
+        <div className="container" style={{ textAlign: 'center', padding: '3rem' }}>
+          <div style={{ fontSize: '1.125rem', color: '#6b7280', marginBottom: '1rem' }}>Evaluation not found</div>
+          <button onClick={() => setSearchParams({})} className="btn btn-secondary" style={{ marginTop: '1rem' }}>
+            ← Back to Dashboard
+          </button>
+        </div>
+      )
+    }
+
+    // Determine assessment type
+    // Check assessment_type field first, then fallback to checking if it has paid-tier data
+    let assessmentType = evaluation.assessment_type
+    if (!assessmentType && !evaluation.is_legacy) {
+      // Fallback: Check multiple indicators of paid assessment
+      // 1. mission_alignment or winner_pattern_match exists (NULL for free tier)
+      if (evaluation.mission_alignment !== null && evaluation.mission_alignment !== undefined) {
+        assessmentType = 'paid'
+      } else if (evaluation.winner_pattern_match !== null && evaluation.winner_pattern_match !== undefined) {
+        assessmentType = 'paid'
+      } else if (evaluation.confidence_notes && evaluation.confidence_notes.includes('Profile incomplete')) {
+        // 2. "Profile incomplete" message only appears in paid assessments
+        assessmentType = 'paid'
+      } else {
+        assessmentType = 'free'
+      }
+    }
+    
+    // Find grant data if evaluation has grant_id (indexed grant)
+    const grantData = evaluation.grant_id 
+      ? grantsArray.find(g => g && g.id === evaluation.grant_id)
+      : null
+    
+    // Find project data for paid assessments
+    const projectData = evaluation.project_id 
+      ? projectsArray.find(p => p && p.id === evaluation.project_id)
+      : null
 
     return (
       <div className="container">
         <button onClick={() => setSearchParams({})} className="btn btn-secondary" style={{ marginBottom: '1rem' }}>
           ← Back to Dashboard
         </button>
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
-            <div>
-              <h2>Evaluation #{evaluation.id}</h2>
-              <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        
+        {/* Report Issue Button - Always visible */}
+        <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => {
                   setReportIssueContext({ evaluation_id: evaluation.id, issue_type: 'technical_error' })
@@ -622,34 +798,52 @@ function Dashboard() {
               >
                 Report Issue
               </button>
+        </div>
+
+        {/* Render appropriate component based on assessment type */}
+        {assessmentType === 'free' ? (
+          <FreeAssessmentDisplay evaluation={evaluation} grantData={grantData} />
+        ) : assessmentType === 'paid' ? (
+          <PaidAssessmentDisplay evaluation={evaluation} projectData={projectData} grantData={grantData} />
+        ) : (
+          // Legacy evaluation - show basic info
+          <div className="card">
+            <LegacyEvaluationBadge 
+              evaluation={evaluation}
+              onCreateNew={() => setShowForm(true)}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
+              <div>
+                <h3>Evaluation #{evaluation.id}</h3>
+                <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
+              </div>
               <span
               style={{
                 padding: '0.5rem 1rem',
                 borderRadius: '4px',
                 backgroundColor:
                   evaluation.recommendation === 'APPLY'
-                    ? '#28a745'
+                    ? '#059669' // muted emerald-600
                     : evaluation.recommendation === 'PASS'
-                    ? '#dc3545'
-                    : '#ffc107',
+                    ? '#dc2626' // muted red-600
+                    : '#d97706', // muted amber-600
                 color: 'white',
                 fontWeight: 'bold',
               }}
             >
               {evaluation.recommendation}
             </span>
-            </div>
           </div>
           
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
             <div>
               <strong>Timeline:</strong> {evaluation.timeline_viability}/10
             </div>
             <div>
-              <strong>Mission:</strong> {evaluation.mission_alignment}/10
+                <strong>Mission:</strong> {evaluation.mission_alignment ?? 'N/A'}/10
             </div>
             <div>
-              <strong>Winner Match:</strong> {evaluation.winner_pattern_match}/10
+                <strong>Winner Match:</strong> {evaluation.winner_pattern_match ?? 'N/A'}/10
             </div>
             <div>
               <strong>Burden:</strong> {evaluation.application_burden}/10
@@ -661,19 +855,6 @@ function Dashboard() {
               <strong>Composite:</strong> {evaluation.composite_score}/10
             </div>
           </div>
-
-          {evaluation.reasoning && typeof evaluation.reasoning === 'object' && (
-            <div style={{ marginTop: '1rem' }}>
-              <h4>Reasoning</h4>
-              {Object.entries(evaluation.reasoning)
-                .filter(([key]) => key !== '_paid_tier' && key !== '_free_tier_note')
-                .map(([key, value]) => (
-                  <div key={key} style={{ marginBottom: '0.5rem' }}>
-                    <strong>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}:</strong> {value}
-                  </div>
-                ))}
-            </div>
-          )}
 
           {evaluation.red_flags && Array.isArray(evaluation.red_flags) && evaluation.red_flags.length > 0 && (
             <div style={{ marginTop: '1rem' }}>
@@ -689,307 +870,16 @@ function Dashboard() {
           {evaluation.key_insights && Array.isArray(evaluation.key_insights) && evaluation.key_insights.length > 0 && (
             <div style={{ marginTop: '1rem' }}>
               <h4>Key Insights</h4>
-              <ul>
+                <div>
                 {evaluation.key_insights.map((insight, idx) => (
-                  <li key={idx}>{insight}</li>
+                    <p key={idx} style={{ marginBottom: '0.5rem', marginTop: 0 }}>{insight}</p>
                 ))}
-              </ul>
+            </div>
+            </div>
+          )}
             </div>
           )}
 
-          {evaluation.confidence_notes && evaluation.evaluation_tier === 'free' && (
-            <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px', fontSize: '0.9rem', color: '#6b7280' }}>
-              <strong>Note:</strong> {evaluation.confidence_notes}
-            </div>
-          )}
-          
-          {evaluation.confidence_notes && evaluation.evaluation_tier !== 'free' && (
-            <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px', fontSize: '0.9rem', color: '#495057' }}>
-              <strong>Confidence:</strong> {evaluation.confidence_notes}
-            </div>
-          )}
-
-          {/* Paid Tier Enhancements - Only show for paid assessments (standard or refined) */}
-          {/* Only show if explicitly 'standard' or 'refined' - not just "not free" */}
-          {(evaluation.evaluation_tier === 'standard' || evaluation.evaluation_tier === 'refined') && (
-            <div style={{ marginTop: '1.5rem', padding: '1.5rem', backgroundColor: '#e7f3ff', borderRadius: '8px', border: '2px solid #007bff' }}>
-              <div style={{ marginBottom: '1.5rem' }}>
-                <h3 style={{ marginTop: 0, color: '#004085', marginBottom: '0.5rem' }}>
-                  ✨ Paid Assessment Insights
-                </h3>
-                <p style={{ margin: 0, color: '#004085', fontSize: '0.95rem', lineHeight: '1.5' }}>
-                  <strong>Decision authority transferred.</strong> These insights remove ambiguity and save you hours of research. 
-                  You're getting pattern knowledge, probability estimates, and strategic framing .
-                </p>
-              </div>
-              
-              {evaluation.success_probability_range && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #b3d9ff' }}>
-                  <h4 style={{ color: '#004085', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Success Probability Range
-                  </h4>
-                  <p style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#004085', margin: '0.5rem 0' }}>
-                    {evaluation.success_probability_range}
-                  </p>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#495057', fontStyle: 'italic' }}>
-                    Based on your project context, competition level, and past winner patterns. Use this to prioritize which grants deserve your time.
-                  </p>
-                </div>
-              )}
-              
-              {evaluation.decision_gates && Array.isArray(evaluation.decision_gates) && evaluation.decision_gates.length > 0 && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #b3d9ff' }}>
-                  <h4 style={{ color: '#004085', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>🚪</span> Decision Gates
-                  </h4>
-                  <p style={{ marginBottom: '0.75rem', color: '#004085', fontWeight: 'bold', fontSize: '0.95rem' }}>
-                    {evaluation.recommendation === 'APPLY' || evaluation.recommendation === 'CONDITIONAL' 
-                      ? 'Apply only if all conditions are met:'
-                      : 'Would apply only if these conditions are met:'}
-                  </p>
-                  <ul style={{ margin: 0, paddingLeft: '1.5rem', color: '#004085' }}>
-                    {evaluation.decision_gates.map((gate, idx) => (
-                      <li key={idx} style={{ marginBottom: '0.5rem', lineHeight: '1.5' }}>{gate}</li>
-                    ))}
-                  </ul>
-                  <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.85rem', color: '#495057', fontStyle: 'italic' }}>
-                    These concrete conditions turn analysis into action. No guessing—just clear decision logic.
-                  </p>
-                </div>
-              )}
-              
-              {evaluation.pattern_knowledge && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #b3d9ff' }}>
-                  <h4 style={{ color: '#004085', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Pattern Knowledge
-                  </h4>
-                  <p style={{ margin: 0, color: '#004085', fontStyle: 'italic', lineHeight: '1.6' }}>
-                    {evaluation.pattern_knowledge}
-                  </p>
-                  <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.85rem', color: '#495057' }}>
-                    <strong>Why this matters:</strong> Non-obvious insights from analyzing grant patterns. This is the kind of strategic knowledge that separates successful applicants from those wasting time.
-                  </p>
-                </div>
-              )}
-              
-              {evaluation.opportunity_cost && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #b3d9ff' }}>
-                  <h4 style={{ color: '#004085', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>⚖️</span> Opportunity Cost Analysis
-                  </h4>
-                  <p style={{ margin: 0, color: '#004085', lineHeight: '1.6' }}>
-                    {evaluation.opportunity_cost}
-                  </p>
-                  <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.85rem', color: '#495057', fontStyle: 'italic' }}>
-                    Time is your most valuable resource. This analysis helps you allocate it where it yields the highest return.
-                  </p>
-                </div>
-              )}
-              
-              {evaluation.confidence_index !== null && evaluation.confidence_index !== undefined && (
-                <div style={{ padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #b3d9ff' }}>
-                  <h4 style={{ color: '#004085', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Assessment Confidence
-                  </h4>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-                    <div style={{ flex: 1, backgroundColor: '#cfe2ff', borderRadius: '4px', height: '24px', position: 'relative', overflow: 'hidden' }}>
-                      <div 
-                        style={{ 
-                          width: `${(evaluation.confidence_index * 100).toFixed(0)}%`,
-                          backgroundColor: evaluation.confidence_index >= 0.7 ? '#28a745' : evaluation.confidence_index >= 0.5 ? '#ffc107' : '#dc3545',
-                          height: '100%',
-                          transition: 'width 0.3s ease'
-                        }}
-                      />
-                    </div>
-                    <span style={{ fontWeight: 'bold', color: '#004085', minWidth: '50px', fontSize: '1.1rem' }}>
-                      {(evaluation.confidence_index * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#495057', fontStyle: 'italic' }}>
-                    Based on data completeness and verification. Higher confidence = more reliable recommendation.
-                  </p>
-                </div>
-              )}
-              
-              {/* Value Summary Footer */}
-              <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#004085', borderRadius: '6px', color: '#ffffff' }}>
-                <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: '1.6', textAlign: 'center' }}>
-                  <strong>You've unlocked the full value:</strong> Decisive recommendations, pattern insights, and time-saving analysis 
-                  that free assessments can't provide. This is what you paid for—clarity, authority, and strategic advantage.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Free Tier - Show Premium Features as Locked/Upgrade Prompts */}
-          {evaluation.evaluation_tier === 'free' && !evaluation.is_refinement && (() => {
-            // Get project name for personalization (use already-validated projectsArray)
-            const project = projectsArray.find(p => p && p.id === evaluation.project_id)
-            const projectName = project?.name || 'your project'
-            const grantName = evaluation.grant_name || 'this grant'
-            
-            return (
-              <div style={{ marginTop: '1.5rem' }}>
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: '#fff3cd', 
-                  borderRadius: '6px', 
-                  borderLeft: '4px solid #ffc107',
-                  marginBottom: '1.5rem'
-                }}>
-                  <p style={{ margin: 0, fontSize: '0.9rem', color: '#856404' }}>
-                    <strong>Free assessment.</strong> Unlock premium insights below with a paid assessment.
-                  </p>
-                </div>
-
-                {/* Premium Features Preview - Locked */}
-                <div style={{ 
-                  padding: '1.5rem', 
-                  backgroundColor: '#f8f9fa', 
-                  borderRadius: '8px', 
-                  border: '2px dashed #dee2e6',
-                  position: 'relative',
-                  opacity: 0.7
-                }}>
-                  <div style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    backgroundColor: '#ffc107',
-                    color: '#856404',
-                    padding: '0.25rem 0.75rem',
-                    borderRadius: '4px',
-                    fontSize: '0.75rem',
-                    fontWeight: 'bold'
-                  }}>
-                    UPGRADE TO UNLOCK
-                  </div>
-                  
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <p style={{ margin: 0, color: '#495057', fontSize: '1.1rem', lineHeight: '1.6', marginBottom: '0.75rem', fontWeight: '600' }}>
-                      Stop wasting 20+ hours on low-probability applications.
-                    </p>
-                    <p style={{ margin: 0, color: '#6c757d', fontSize: '0.95rem', lineHeight: '1.6' }}>
-                      Your Free Match score is ready. Now, let's see if it's worth the effort.
-                    </p>
-                  </div>
-                  
-                  <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #dee2e6' }}>
-                    <h4 style={{ color: '#6c757d', marginBottom: '0.5rem', fontWeight: '600' }}>
-                      Success Probability Estimate
-                    </h4>
-                    <p style={{ margin: 0, color: '#6c757d', fontStyle: 'italic' }}>
-                      Get your specific Success Probability Range for <strong>{projectName}</strong>. Get a precise % range based on past winner patterns for this specific funder.
-                    </p>
-                  </div>
-                  
-                  <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #dee2e6' }}>
-                    <h4 style={{ color: '#6c757d', marginBottom: '0.5rem', fontWeight: '600' }}>
-                      Hard APPLY/PASS Gates
-                    </h4>
-                    <p style={{ margin: 0, color: '#6c757d', fontStyle: 'italic' }}>
-                      We give you a definitive verdict so you don't waste days on a 'No-Go' project. If you can't meet the grants specific criteria in 30 minutes, we'll tell you to pass—saving you days of wasted effort.
-                    </p>
-                  </div>
-                  
-                  <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #dee2e6' }}>
-                    <h4 style={{ color: '#6c757d', marginBottom: '0.5rem', fontWeight: '600' }}>
-                      Opportunity Cost Analysis
-                    </h4>
-                    <p style={{ margin: 0, color: '#6c757d', fontStyle: 'italic' }}>
-                      Is <strong>{grantName}</strong> your best option right now? See if your 10+ hours would yield a higher ROI on 3 smaller, faster grants.
-                    </p>
-                  </div>
-                </div>
-                
-                {/* Unlock Button - Prominent CTA */}
-                <div style={{ 
-                  marginTop: '2rem', 
-                  padding: '1.5rem', 
-                  backgroundColor: '#ffffff', 
-                  borderRadius: '12px', 
-                  border: '3px solid #007bff',
-                  boxShadow: '0 4px 12px rgba(0, 123, 255, 0.15)',
-                  textAlign: 'center' 
-                }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '1rem', color: '#004085' }}>
-                    Ready to Unlock Full Insights?
-                  </h3>
-                  <p style={{ marginBottom: '1.5rem', color: '#495057', fontSize: '0.95rem' }}>
-                    Don't leave your application to chance. Get the strategy you need before writing the first word.
-                  </p>
-                  <button
-                    onClick={() => handleRefineEvaluation(evaluation.id)}
-                    className="btn btn-primary"
-                    style={{
-                      padding: '1.25rem 3rem',
-                      fontSize: '1.2rem',
-                      fontWeight: 'bold',
-                      backgroundColor: '#007bff',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 12px rgba(0, 123, 255, 0.4)',
-                      transition: 'all 0.2s ease',
-                      minWidth: '280px'
-                    }}
-                    onMouseOver={(e) => {
-                      e.target.style.backgroundColor = '#0056b3'
-                      e.target.style.transform = 'translateY(-2px)'
-                      e.target.style.boxShadow = '0 6px 16px rgba(0, 123, 255, 0.5)'
-                    }}
-                    onMouseOut={(e) => {
-                      e.target.style.backgroundColor = '#007bff'
-                      e.target.style.transform = 'translateY(0)'
-                      e.target.style.boxShadow = '0 4px 12px rgba(0, 123, 255, 0.4)'
-                    }}
-                  >
-                    🔓 Unlock My Full Assessment
-                  </button>
-                  <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#6b7280', marginBottom: 0 }}>
-                    Price shown in USD. Paystack will automatically convert to your local currency when you pay.
-                  </p>
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Refined Assessment Badge */}
-          {evaluation.evaluation_tier === 'refined' && (
-            <div style={{ 
-              marginTop: '1.5rem', 
-              padding: '1rem', 
-              backgroundColor: '#d4edda', 
-              borderRadius: '8px', 
-              border: '2px solid #28a745',
-              borderLeft: '6px solid #28a745'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <strong style={{ color: '#155724' }}>Refined Assessment</strong>
-                <span style={{ color: '#155724', marginLeft: 'auto' }}>
-                  Full project context included
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Standard Assessment Badge */}
-          {evaluation.evaluation_tier === 'standard' && (
-            <div style={{ 
-              marginTop: '1.5rem', 
-              padding: '0.75rem', 
-              backgroundColor: '#e7f3ff', 
-              borderRadius: '4px', 
-              borderLeft: '4px solid #007bff'
-            }}>
-              <span style={{ color: '#004085', fontSize: '0.9rem' }}>
-                ✓ Standard Assessment
-              </span>
-            </div>
-          )}
-        </div>
         {showReportIssue && (
           <ReportIssue 
             onClose={() => {
@@ -1003,8 +893,21 @@ function Dashboard() {
     )
   }
 
+  // Define spinner styles for loading indicators
+  const spinnerStyles = `
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+  `
+
   return (
     <div className="container">
+      <style>{spinnerStyles}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <h1>Dashboard</h1>
         <button onClick={() => setShowForm(!showForm)} className="btn btn-primary">
@@ -1012,23 +915,31 @@ function Dashboard() {
         </button>
       </div>
 
+      {/* Credit Conversion Notification */}
+      {creditStatus?.has_converted_refinement && (
+        <CreditConversionNotification 
+          hasConvertedRefinement={creditStatus.has_converted_refinement}
+        />
+      )}
+
       {/* Bundle Credits Indicator - Always Visible */}
       {creditStatus?.bundle_credits > 0 && (
         <div style={{ 
           marginBottom: '1.5rem', 
-          padding: '1rem 1.5rem', 
-          backgroundColor: '#e7f3ff', 
-          borderRadius: '8px',
-          border: '2px solid #007bff',
+          padding: '1.25rem 1.5rem', 
+          backgroundColor: '#ffffff', 
+          borderRadius: '4px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between'
         }}>
           <div>
-            <p style={{ margin: 0, fontWeight: 'bold', color: '#004085', fontSize: '1.1rem' }}>
-              🎉 You have {creditStatus.bundle_credits} bundle credit{creditStatus.bundle_credits > 1 ? 's' : ''} available!
+            <p style={{ margin: 0, fontWeight: '600', color: '#374151', fontSize: '1rem' }}>
+              You have {creditStatus.bundle_credits} bundle credit{creditStatus.bundle_credits > 1 ? 's' : ''} available
             </p>
-            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#004085' }}>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.875rem', color: '#6b7280' }}>
               Create {creditStatus.bundle_credits} more assessment{creditStatus.bundle_credits > 1 ? 's' : ''} without additional payment
             </p>
           </div>
@@ -1036,10 +947,12 @@ function Dashboard() {
             onClick={() => setShowForm(true)} 
             className="btn" 
             style={{ 
-              backgroundColor: '#007bff',
+              backgroundColor: '#4b5563',
               color: 'white',
-              borderColor: '#007bff',
-              marginLeft: '1rem'
+              borderColor: '#4b5563',
+              marginLeft: '1rem',
+              padding: '0.5rem 1rem',
+              fontSize: '0.875rem'
             }}
           >
             Create Assessment
@@ -1062,14 +975,15 @@ function Dashboard() {
             <div style={{ 
               marginBottom: '1.5rem', 
               padding: '1rem', 
-              backgroundColor: '#e7f3ff', 
-              borderRadius: '8px',
-              border: '2px solid #007bff'
+              backgroundColor: '#ffffff', 
+              borderRadius: '4px',
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'
             }}>
-              <p style={{ margin: 0, fontWeight: 'bold', color: '#004085' }}>
-                You have {creditStatus.bundle_credits} bundle credit{creditStatus.bundle_credits > 1 ? 's' : ''} available!
+              <p style={{ margin: 0, fontWeight: '600', color: '#374151' }}>
+                You have {creditStatus.bundle_credits} bundle credit{creditStatus.bundle_credits > 1 ? 's' : ''} available
               </p>
-              <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#004085' }}>
+              <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#6b7280' }}>
                 You can create {creditStatus.bundle_credits} more assessment{creditStatus.bundle_credits > 1 ? 's' : ''} without additional payment.
               </p>
             </div>
@@ -1078,12 +992,13 @@ function Dashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
             <div style={{ 
               padding: '1.5rem', 
-              border: '2px solid #007bff', 
+              border: '2px solid #3b82f6', // muted blue-500
               borderRadius: '8px',
-              backgroundColor: '#f8f9fa'
+              backgroundColor: '#ffffff',
+              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
             }}>
-              <h3 style={{ marginTop: 0, marginBottom: '0.5rem' }}>Single Assessment</h3>
-              <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#007bff', margin: '0.5rem 0' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '0.5rem', color: '#374151' }}>Single Assessment</h3>
+              <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#3b82f6', margin: '0.5rem 0' }}>
                 {pricing?.standard?.usd_equivalent ? `$${pricing.standard.usd_equivalent.toFixed(0)}` : '$7'}
               </p>
               <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0.5rem 0' }}>
@@ -1100,16 +1015,17 @@ function Dashboard() {
             
             <div style={{ 
               padding: '1.5rem', 
-              border: '2px solid #28a745', 
+              border: '2px solid #059669', // muted emerald-600
               borderRadius: '8px',
-              backgroundColor: '#f8f9fa',
-              position: 'relative'
+              backgroundColor: '#ffffff',
+              position: 'relative',
+              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
             }}>
               <div style={{
                 position: 'absolute',
                 top: '-10px',
                 right: '10px',
-                backgroundColor: '#28a745',
+                backgroundColor: '#059669', // muted emerald-600
                 color: 'white',
                 padding: '0.25rem 0.75rem',
                 borderRadius: '12px',
@@ -1118,14 +1034,14 @@ function Dashboard() {
               }}>
                 BEST VALUE
               </div>
-              <h3 style={{ marginTop: 0, marginBottom: '0.5rem' }}>Bundle</h3>
-              <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#28a745', margin: '0.5rem 0' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '0.5rem', color: '#374151' }}>Bundle</h3>
+              <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#059669', margin: '0.5rem 0' }}>
                 {pricing?.bundle?.usd_equivalent ? `$${pricing.bundle.usd_equivalent.toFixed(0)}` : '$18'}
               </p>
               <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0.5rem 0' }}>
                 3 full context assessments
               </p>
-              <p style={{ fontSize: '0.75rem', color: '#155724', margin: '0.5rem 0', fontWeight: 'bold' }}>
+              <p style={{ fontSize: '0.75rem', color: '#059669', margin: '0.5rem 0', fontWeight: 'bold', padding: '0.25rem 0.5rem', backgroundColor: '#d1fae5', borderRadius: '4px', display: 'inline-block' }}>
                 Save $1 per assessment
               </p>
               <button 
@@ -1134,9 +1050,9 @@ function Dashboard() {
                 style={{ 
                   width: '100%', 
                   marginTop: '0.5rem',
-                  backgroundColor: '#28a745',
+                  backgroundColor: '#059669', // muted emerald-600
                   color: 'white',
-                  borderColor: '#28a745'
+                  borderColor: '#059669'
                 }}
               >
                 {pricing?.bundle?.usd_equivalent ? `Pay $${pricing.bundle.usd_equivalent.toFixed(0)}` : 'Pay $18'}
@@ -1211,6 +1127,109 @@ function Dashboard() {
                 Confirm & Pay
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assessment Loading Overlay */}
+      {(isAssessing || evaluateMutation.isLoading || evaluateMutation.isPending) && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '12px',
+            padding: '2.5rem 3rem',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            textAlign: 'center'
+          }}>
+            {/* Spinner */}
+            <div style={{
+              width: '60px',
+              height: '60px',
+              margin: '0 auto 1.5rem',
+              border: '4px solid #e5e7eb',
+              borderTop: '4px solid #3b82f6',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }}></div>
+            <style>{`
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}</style>
+            
+            <h3 style={{ 
+              margin: '0 0 0.75rem 0', 
+              color: '#374151', 
+              fontSize: '1.5rem',
+              fontWeight: '600'
+            }}>
+              Preparing Your Assessment
+            </h3>
+            <p style={{ 
+              margin: '0 0 1rem 0', 
+              color: '#6b7280', 
+              fontSize: '1rem',
+              lineHeight: '1.5'
+            }}>
+              Analyzing grant details, evaluating fit, and generating personalized recommendations...
+            </p>
+            <div style={{
+              display: 'flex',
+              gap: '0.5rem',
+              justifyContent: 'center',
+              marginTop: '1.5rem'
+            }}>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: '#3b82f6',
+                animation: 'pulse 1.4s ease-in-out infinite'
+              }}></div>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: '#3b82f6',
+                animation: 'pulse 1.4s ease-in-out infinite 0.2s'
+              }}></div>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: '#3b82f6',
+                animation: 'pulse 1.4s ease-in-out infinite 0.4s'
+              }}></div>
+            </div>
+            <style>{`
+              @keyframes pulse {
+                0%, 100% { opacity: 0.4; transform: scale(1); }
+                50% { opacity: 1; transform: scale(1.2); }
+              }
+            `}</style>
+            <p style={{ 
+              margin: '1.5rem 0 0 0', 
+              color: '#9ca3af', 
+              fontSize: '0.875rem',
+              fontStyle: 'italic'
+            }}>
+              This may take 30-60 seconds
+            </p>
           </div>
         </div>
       )}
@@ -1532,49 +1551,88 @@ function Dashboard() {
         </div>
         <div className="card">
           <h3>Apply</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#28a745' }}>{applyCount}</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#059669' }}>{applyCount}</p>
         </div>
         <div className="card">
           <h3>Pass</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#dc3545' }}>{passCount}</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#dc2626' }}>{passCount}</p>
         </div>
         <div className="card">
           <h3>Conditional</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#ffc107' }}>{conditionalCount}</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#d97706' }}>{conditionalCount}</p>
         </div>
       </div>
 
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
           <h2 style={{ margin: 0 }}>
             All Evaluations
-            {evaluations && evaluations.length > 0 && (
+            {evaluationsArray.length > 0 && (
               <span style={{
                 marginLeft: '0.5rem',
                 fontSize: '1rem',
                 fontWeight: 'normal',
                 color: '#6b7280'
               }}>
-                ({evaluations.length} total)
+                ({evaluationsArray.length} total)
               </span>
             )}
           </h2>
-          {evaluations && evaluations.length > 5 && (
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {evaluationsArray.length > 0 && (
+              <select
+                value={evaluationSort}
+                onChange={(e) => setEvaluationSort(e.target.value)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.875rem',
+                  borderRadius: '4px',
+                  border: '1px solid #d1d5db',
+                  backgroundColor: 'white',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="most_recent">Most Recent</option>
+                <option value="oldest_first">Oldest First</option>
+                <option value="by_score">By Score</option>
+              </select>
+            )}
+            {evaluationsArray.length > defaultDisplayCount && (
             <button
-              onClick={() => setShowAllEvaluations(!showAllEvaluations)}
+                onClick={() => setShowAllEvaluationsModal(true)}
               className="btn btn-secondary"
               style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}
             >
-              {showAllEvaluations ? 'Show Less' : 'Show All'}
+                View All
             </button>
           )}
         </div>
-        {evaluations && evaluations.length > 0 ? (
+        </div>
+        {evaluationsLoading ? (
+          <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              border: '3px solid #e5e7eb',
+              borderTop: '3px solid #3b82f6',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto 1rem'
+            }}></div>
+            <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>Loading evaluations...</p>
+          </div>
+        ) : evaluationsArray.length > 0 ? (
           <div>
-            {(showAllEvaluations || evaluations.length <= 5 
-              ? evaluations 
-              : evaluations.slice(0, 5)
-            ).map((evaluation) => (
+            {displayedEvaluations.map((evaluation) => {
+              const assessmentType = evaluation.assessment_type || (evaluation.is_legacy ? null : 'free')
+              const evalGrantData = evaluation.grant_id 
+                ? grantsArray.find(g => g && g.id === evaluation.grant_id)
+                : null
+              const evalProjectData = evaluation.project_id 
+                ? projectsArray.find(p => p && p.id === evaluation.project_id)
+                : null
+              
+              return (
               <div 
                 key={evaluation.id} 
                 className="card" 
@@ -1582,103 +1640,170 @@ function Dashboard() {
                   marginBottom: '1rem', 
                   cursor: 'pointer',
                   transition: 'transform 0.2s',
+                    padding: '1rem'
                 }}
                 onClick={() => setSearchParams({ evaluation: evaluation.id.toString() })}
                 onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
                 onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
-                  <div>
-                    <h3>Evaluation #{evaluation.id}</h3>
-                    <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
-                    {/* Tier Badge */}
-                    {evaluation.evaluation_tier === 'free' && (
-                      <span style={{ 
-                        display: 'inline-block',
-                        marginTop: '0.5rem',
-                        padding: '0.25rem 0.75rem',
-                        backgroundColor: '#fff3cd',
-                        color: '#856404',
+                  {/* Compact Card View */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.75rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <h4 style={{ margin: 0, marginBottom: '0.25rem' }}>
+                        {evaluation.grant_name || `Grant ID: ${evaluation.grant_id || 'N/A'}`}
+                      </h4>
+                      <div style={{ display: 'flex', gap: '1rem', fontSize: '0.85rem', color: '#6b7280', flexWrap: 'wrap' }}>
+                        <span>{formatDate(evaluation.created_at)}</span>
+                        <span>Score: {evaluation.composite_score}/10</span>
+                        {assessmentType && (
+                          <span style={{ textTransform: 'capitalize' }}>{assessmentType} Assessment</span>
+                        )}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        padding: '0.375rem 0.75rem',
                         borderRadius: '4px',
-                        fontSize: '0.85rem',
-                        fontWeight: 'bold'
-                      }}>
-                        Free Tier
-                      </span>
-                    )}
-                    {evaluation.evaluation_tier === 'refined' && (
-                      <span style={{ 
-                        display: 'inline-block',
-                        marginTop: '0.5rem',
-                        padding: '0.25rem 0.75rem',
-                        backgroundColor: '#d4edda',
-                        color: '#155724',
-                        borderRadius: '4px',
-                        fontSize: '0.85rem',
-                        fontWeight: 'bold'
-                      }}>
-                        ✓ Refined
-                      </span>
-                    )}
-                    {evaluation.evaluation_tier === 'standard' && (
-                      <span style={{ 
-                        display: 'inline-block',
-                        marginTop: '0.5rem',
-                        padding: '0.25rem 0.75rem',
-                        backgroundColor: '#e7f3ff',
-                        color: '#004085',
-                        borderRadius: '4px',
-                        fontSize: '0.85rem'
-                      }}>
-                        Standard
-                      </span>
-                    )}
+                        backgroundColor: getRecommendationColor(evaluation.recommendation),
+                        color: 'white',
+                        fontWeight: 'bold',
+                        fontSize: '0.875rem',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {evaluation.recommendation}
+                    </span>
                   </div>
-                  <span
-                    style={{
-                      padding: '0.5rem 1rem',
-                      borderRadius: '4px',
-                      backgroundColor:
-                        evaluation.recommendation === 'APPLY'
-                          ? '#28a745'
-                          : evaluation.recommendation === 'PASS'
-                          ? '#dc3545'
-                          : '#ffc107',
-                      color: 'white',
-                      fontWeight: 'bold',
-                    }}
-                  >
-                    {evaluation.recommendation}
-                  </span>
+                  {evaluation.key_insights && evaluation.key_insights.length > 0 && (
+                    <div style={{ fontSize: '0.9rem', color: '#495057', fontStyle: 'italic' }}>
+                      {evaluation.key_insights[0]}
+                    </div>
+                  )}
                 </div>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-                  <div>
-                    <strong>Timeline:</strong> {evaluation.timeline_viability}/10
-                  </div>
-                  <div>
-                    <strong>Mission:</strong> {evaluation.mission_alignment}/10
-                  </div>
-                  <div>
-                    <strong>Winner Match:</strong> {evaluation.winner_pattern_match}/10
-                  </div>
-                  <div>
-                    <strong>Burden:</strong> {evaluation.application_burden}/10
-                  </div>
-                  <div>
-                    <strong>Structure:</strong> {evaluation.award_structure}/10
-                  </div>
-                  <div>
-                    <strong>Composite:</strong> {evaluation.composite_score}/10
-                  </div>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
-        ) : (
+        ) : !evaluationsLoading && (
           <p>No evaluations yet. Create an evaluation to see grant recommendations.</p>
         )}
       </div>
+
+      {/* View All Evaluations Modal */}
+      {showAllEvaluationsModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '2rem'
+        }} onClick={() => setShowAllEvaluationsModal(false)}>
+          <div className="card" style={{
+            maxWidth: '900px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            position: 'relative'
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h2 style={{ margin: 0 }}>
+                All Evaluations ({sortedEvaluations.length})
+              </h2>
+              <button
+                onClick={() => setShowAllEvaluationsModal(false)}
+                className="btn btn-secondary"
+                style={{ fontSize: '0.875rem', padding: '0.5rem 1rem' }}
+              >
+                Close
+              </button>
+            </div>
+            <div>
+              {sortedEvaluations.map((evaluation) => {
+                  // Determine assessment type with fallback
+                  let assessmentType = evaluation.assessment_type
+                  if (!assessmentType && !evaluation.is_legacy) {
+                    if (evaluation.mission_alignment !== null && evaluation.mission_alignment !== undefined) {
+                      assessmentType = 'paid'
+                    } else if (evaluation.winner_pattern_match !== null && evaluation.winner_pattern_match !== undefined) {
+                      assessmentType = 'paid'
+                    } else if (evaluation.confidence_notes && evaluation.confidence_notes.includes('Profile incomplete')) {
+                      assessmentType = 'paid'
+                  } else {
+                      assessmentType = 'free'
+                    }
+                  }
+                const evalGrantData = evaluation.grant_id 
+                  ? grantsArray.find(g => g && g.id === evaluation.grant_id)
+                  : null
+                const evalProjectData = evaluation.project_id 
+                  ? projectsArray.find(p => p && p.id === evaluation.project_id)
+                  : null
+                
+                    return (
+                  <div 
+                    key={evaluation.id} 
+                    className="card" 
+                    style={{ 
+                      marginBottom: '1rem', 
+                      cursor: 'pointer',
+                      transition: 'transform 0.2s',
+                    }}
+                    onClick={() => {
+                      setShowAllEvaluationsModal(false)
+                      setSearchParams({ evaluation: evaluation.id.toString() })
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                  >
+                    {assessmentType === 'free' ? (
+                      <FreeAssessmentDisplay evaluation={evaluation} grantData={evalGrantData} />
+                    ) : assessmentType === 'paid' ? (
+                      <PaidAssessmentDisplay evaluation={evaluation} projectData={evalProjectData} grantData={evalGrantData} />
+                    ) : (
+                      <div>
+                        <LegacyEvaluationBadge 
+                          evaluation={evaluation}
+                          onCreateNew={() => setShowForm(true)}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
+                          <div>
+                            <h3>Evaluation #{evaluation.id}</h3>
+                            <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
+                          </div>
+                          <span
+                            style={{
+                              padding: '0.5rem 1rem',
+                              borderRadius: '4px',
+                              backgroundColor: getRecommendationColor(evaluation.recommendation),
+                              color: 'white',
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            {evaluation.recommendation}
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                          <div><strong>Timeline:</strong> {evaluation.timeline_viability}/10</div>
+                          <div><strong>Mission:</strong> {evaluation.mission_alignment ?? 'N/A'}/10</div>
+                          <div><strong>Winner Match:</strong> {evaluation.winner_pattern_match ?? 'N/A'}/10</div>
+                          <div><strong>Burden:</strong> {evaluation.application_burden}/10</div>
+                          <div><strong>Structure:</strong> {evaluation.award_structure}/10</div>
+                          <div><strong>Composite:</strong> {evaluation.composite_score}/10</div>
+                          </div>
+                          </div>
+                    )}
+                      </div>
+                    )
+              })}
+              </div>
+          </div>
+      </div>
+      )}
       {showReportIssue && (
         <ReportIssue 
           onClose={() => {
