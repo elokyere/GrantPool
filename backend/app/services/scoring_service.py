@@ -1125,17 +1125,17 @@ Provide a deep, insightful explanation of why the alignment is {score}/10. Show 
                 gaps.append(intelligent_explanation)
             else:
                 # Fallback to template-based explanation
-            project_desc_display = project_description.strip() if project_description else "not specified"
-            grant_mission_display = (grant_mission if grant_mission else grant_description) or "not specified"
-            grant_mission_display = grant_mission_display.strip()
-            
-            # Create a clear, grammatically correct explanation
-            if project_desc_display != "not specified" and grant_mission_display != "not specified":
-                gaps.append(f"Your project description does not align with the grant's mission. Your project focuses on: '{project_desc_display}'. The grant's mission states: '{grant_mission_display}'. These descriptions do not match, which indicates a fundamental misalignment that will likely result in rejection.")
-            elif project_desc_display != "not specified":
-                gaps.append(f"Your project description ('{project_desc_display}') does not align with the grant's mission, which is not clearly specified. Without a clear mission statement from the grant, alignment cannot be confidently assessed.")
-            else:
-                gaps.append("Your project description is not provided, so mission alignment cannot be assessed. Please provide a detailed project description to enable accurate alignment evaluation.")
+                project_desc_display = project_description.strip() if project_description else "not specified"
+                grant_mission_display = (grant_mission if grant_mission else grant_description) or "not specified"
+                grant_mission_display = grant_mission_display.strip()
+                
+                # Create a clear, grammatically correct explanation
+                if project_desc_display != "not specified" and grant_mission_display != "not specified":
+                    gaps.append(f"Your project description does not align with the grant's mission. Your project focuses on: '{project_desc_display}'. The grant's mission states: '{grant_mission_display}'. These descriptions do not match, which indicates a fundamental misalignment that will likely result in rejection.")
+                elif project_desc_display != "not specified":
+                    gaps.append(f"Your project description ('{project_desc_display}') does not align with the grant's mission, which is not clearly specified. Without a clear mission statement from the grant, alignment cannot be confidently assessed.")
+                else:
+                    gaps.append("Your project description is not provided, so mission alignment cannot be assessed. Please provide a detailed project description to enable accurate alignment evaluation.")
         
         return MissionAlignmentResult(
             score=min(score, 10),
