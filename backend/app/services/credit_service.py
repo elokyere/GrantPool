@@ -89,9 +89,14 @@ class CreditService:
         """
         Check if user has unused bundle credits available.
         
+        Includes:
+        - Original bundle payments
+        - Converted refinement payments (now bundle credits)
+        
         Returns the Payment object if bundle credits are available, None otherwise.
         """
         # Find bundle payments that haven't been fully used
+        # This includes both original bundles and converted refinement payments
         bundle_payments = db.query(models.Payment).filter(
             models.Payment.user_id == user_id,
             models.Payment.payment_type == "bundle",
@@ -157,11 +162,20 @@ class CreditService:
             ).count()
             bundle_credits = max(0, bundle_payment.assessment_count - used_count)
         
+        # Check if user has converted refinement payments
+        has_converted_refinement = db.query(models.Payment).filter(
+            models.Payment.user_id == user_id,
+            models.Payment.payment_type == "refinement",
+            models.Payment.status == "succeeded",
+            models.Payment.converted_to_credit == True  # noqa: E712
+        ).first() is not None
+        
         return {
             "free_available": not user.free_assessment_used,
             "total_assessments": total,
             "paid_assessments": paid_count,
             "free_assessments": free_count,
-            "bundle_credits": bundle_credits
+            "bundle_credits": bundle_credits,
+            "has_converted_refinement": has_converted_refinement
         }
 

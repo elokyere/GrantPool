@@ -91,7 +91,7 @@ function Register() {
               }}
               tabIndex={-1}
             >
-              {showPassword ? '👁️' : '👁️‍🗨️'}
+              {showPassword ? 'Hide' : 'Show'}
             </button>
           </div>
           {error && <div className="error">{error}</div>}

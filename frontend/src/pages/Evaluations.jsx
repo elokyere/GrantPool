@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
+import FreeAssessmentDisplay from '../components/FreeAssessmentDisplay'
+import PaidAssessmentDisplay from '../components/PaidAssessmentDisplay'
+import LegacyEvaluationBadge from '../components/LegacyEvaluationBadge'
 import '../App.css'
 
 function Evaluations() {
@@ -34,6 +37,8 @@ function Evaluations() {
       return response.data
     },
     enabled: !id, // Only fetch list if not viewing single evaluation
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    staleTime: 0, // Always consider data stale, refetch immediately when invalidated
   })
 
   // Get credit status to check if paywall needed
@@ -76,7 +81,8 @@ function Evaluations() {
       return response.data
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries(['evaluations'])
+      // Force immediate refetch of evaluations
+      queryClient.refetchQueries({ queryKey: ['evaluations'] })
       queryClient.invalidateQueries(['creditStatus'])
       setShowForm(false)
       setShowPaywall(false)
@@ -199,7 +205,12 @@ function Evaluations() {
   // If viewing single evaluation
   if (id) {
     if (singleLoading) {
-      return <div className="container">Loading...</div>
+      return (
+        <div className="container" style={{ textAlign: 'center', padding: '3rem' }}>
+          <div style={{ fontSize: '1.125rem', color: '#6b7280', marginBottom: '1rem' }}>Loading evaluation...</div>
+          <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>Please wait while we fetch the evaluation from the database.</div>
+        </div>
+      )
     }
 
     if (!singleEvaluation) {
@@ -207,89 +218,111 @@ function Evaluations() {
     }
 
     const evaluation = singleEvaluation
+    const assessmentType = evaluation.assessment_type || (evaluation.is_legacy ? null : 'free')
+    
     return (
       <div className="container">
         <button onClick={() => navigate('/dashboard/evaluations')} className="btn btn-secondary" style={{ marginBottom: '1rem' }}>
           ← Back to Evaluations
         </button>
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
-            <div>
-              <h2>Evaluation #{evaluation.id}</h2>
-              <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
-            </div>
-            <span
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '4px',
-                backgroundColor:
-                  evaluation.recommendation === 'APPLY'
-                    ? '#28a745'
-                    : evaluation.recommendation === 'PASS'
-                    ? '#dc3545'
-                    : '#ffc107',
-                color: 'white',
-                fontWeight: 'bold',
-              }}
-            >
-              {evaluation.recommendation}
-            </span>
-          </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-            <div>
-              <strong>Timeline:</strong> {evaluation.timeline_viability}/10
-            </div>
-            <div>
-              <strong>Mission:</strong> {evaluation.mission_alignment}/10
-            </div>
-            <div>
-              <strong>Winner Match:</strong> {evaluation.winner_pattern_match}/10
-            </div>
-            <div>
-              <strong>Burden:</strong> {evaluation.application_burden}/10
-            </div>
-            <div>
-              <strong>Structure:</strong> {evaluation.award_structure}/10
-            </div>
-            <div>
-              <strong>Composite:</strong> {evaluation.composite_score}/10
-            </div>
-          </div>
+        
+        {evaluation.is_legacy && (
+          <LegacyEvaluationBadge 
+            evaluation={evaluation}
+            onCreateNew={() => {
+              navigate('/dashboard/evaluations')
+              setShowForm(true)
+            }}
+          />
+        )}
 
-          {evaluation.reasoning && (
-            <div style={{ marginTop: '1rem' }}>
-              <h4>Reasoning</h4>
-              {Object.entries(evaluation.reasoning).map(([key, value]) => (
-                <div key={key} style={{ marginBottom: '0.5rem' }}>
-                  <strong>{key}:</strong> {value}
+        {assessmentType === 'free' ? (
+          <FreeAssessmentDisplay evaluation={evaluation} />
+        ) : assessmentType === 'paid' ? (
+          <PaidAssessmentDisplay evaluation={evaluation} />
+        ) : (
+          // Legacy evaluation - show basic display
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
+              <div>
+                <h2>Evaluation #{evaluation.id}</h2>
+                <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
+              </div>
+              <span
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '4px',
+                  backgroundColor:
+                    evaluation.recommendation === 'APPLY'
+                      ? '#28a745'
+                      : evaluation.recommendation === 'PASS'
+                      ? '#dc3545'
+                      : '#ffc107',
+                  color: 'white',
+                  fontWeight: 'bold',
+                }}
+              >
+                {evaluation.recommendation}
+              </span>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <strong>Timeline:</strong> {evaluation.timeline_viability}/10
+              </div>
+              <div>
+                <strong>Mission:</strong> {evaluation.mission_alignment ?? 'N/A'}/10
+              </div>
+              <div>
+                <strong>Winner Match:</strong> {evaluation.winner_pattern_match ?? 'N/A'}/10
+              </div>
+              <div>
+                <strong>Burden:</strong> {evaluation.application_burden}/10
+              </div>
+              <div>
+                <strong>Structure:</strong> {evaluation.award_structure}/10
+              </div>
+              <div>
+                <strong>Composite:</strong> {evaluation.composite_score}/10
+              </div>
+            </div>
+
+            {evaluation.reasoning && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4>Reasoning</h4>
+                {Object.entries(evaluation.reasoning)
+                  .filter(([key]) => !key.startsWith('_'))
+                  .map(([key, value]) => (
+                    <div key={key} style={{ marginBottom: '0.5rem' }}>
+                      <strong>{key}:</strong> {typeof value === 'string' ? value : JSON.stringify(value)}
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {evaluation.red_flags && evaluation.red_flags.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4 style={{ color: '#dc3545' }}>Red Flags</h4>
+                <ul>
+                  {evaluation.red_flags.map((flag, idx) => (
+                    <li key={idx}>{flag}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {evaluation.key_insights && evaluation.key_insights.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4>Key Insights</h4>
+                <div>
+                  {evaluation.key_insights.map((insight, idx) => (
+                    <p key={idx} style={{ marginBottom: '0.5rem', marginTop: 0 }}>{insight}</p>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-
-          {evaluation.red_flags && evaluation.red_flags.length > 0 && (
-            <div style={{ marginTop: '1rem' }}>
-              <h4 style={{ color: '#dc3545' }}>Red Flags</h4>
-              <ul>
-                {evaluation.red_flags.map((flag, idx) => (
-                  <li key={idx}>{flag}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {evaluation.key_insights && evaluation.key_insights.length > 0 && (
-            <div style={{ marginTop: '1rem' }}>
-              <h4>Key Insights</h4>
-              <ul>
-                {evaluation.key_insights.map((insight, idx) => (
-                  <li key={idx}>{insight}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -322,12 +355,13 @@ function Evaluations() {
             <div style={{ 
               marginBottom: '1.5rem', 
               padding: '1rem', 
-              backgroundColor: '#e7f3ff', 
-              borderRadius: '8px',
-              border: '2px solid #007bff'
+              backgroundColor: '#ffffff', 
+              borderRadius: '4px',
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'
             }}>
-              <p style={{ margin: 0, fontWeight: 'bold', color: '#004085' }}>
-                You have {creditStatus.bundle_credits} bundle credit{creditStatus.bundle_credits > 1 ? 's' : ''} available!
+              <p style={{ margin: 0, fontWeight: '600', color: '#374151' }}>
+                You have {creditStatus.bundle_credits} bundle credit{creditStatus.bundle_credits > 1 ? 's' : ''} available
               </p>
             </div>
           )}
@@ -471,91 +505,75 @@ function Evaluations() {
 
       <div>
         {evaluations && evaluations.length > 0 ? (
-          evaluations.map((evaluation) => (
-            <div key={evaluation.id} className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
-                <div>
-                  <h3>Evaluation #{evaluation.id}</h3>
-                  <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
-                </div>
-                <span
-                  style={{
-                    padding: '0.5rem 1rem',
-                    borderRadius: '4px',
-                    backgroundColor:
-                      evaluation.recommendation === 'APPLY'
-                        ? '#28a745'
-                        : evaluation.recommendation === 'PASS'
-                        ? '#dc3545'
-                        : '#ffc107',
-                    color: 'white',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  {evaluation.recommendation}
-                </span>
-              </div>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-                <div>
-                  <strong>Timeline:</strong> {evaluation.timeline_viability}/10
-                </div>
-                <div>
-                  <strong>Mission:</strong> {evaluation.mission_alignment}/10
-                </div>
-                <div>
-                  <strong>Winner Match:</strong> {evaluation.winner_pattern_match}/10
-                </div>
-                <div>
-                  <strong>Burden:</strong> {evaluation.application_burden}/10
-                </div>
-                <div>
-                  <strong>Structure:</strong> {evaluation.award_structure}/10
-                </div>
-                <div>
-                  <strong>Composite:</strong> {evaluation.composite_score}/10
-                </div>
-              </div>
-
-              {evaluation.reasoning && (
-                <div style={{ marginTop: '1rem' }}>
-                  <h4>Reasoning</h4>
-                  {Object.entries(evaluation.reasoning).map(([key, value]) => (
-                    <div key={key} style={{ marginBottom: '0.5rem' }}>
-                      <strong>{key}:</strong> {value}
+          evaluations.map((evaluation) => {
+            const assessmentType = evaluation.assessment_type || (evaluation.is_legacy ? null : 'free')
+            
+            return (
+              <div key={evaluation.id}>
+                {assessmentType === 'free' ? (
+                  <FreeAssessmentDisplay evaluation={evaluation} />
+                ) : assessmentType === 'paid' ? (
+                  <PaidAssessmentDisplay evaluation={evaluation} />
+                ) : (
+                  // Legacy evaluation - show basic card
+                  <div className="card">
+                    <LegacyEvaluationBadge 
+                      evaluation={evaluation}
+                      onCreateNew={() => setShowForm(true)}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
+                      <div>
+                        <h3>Evaluation #{evaluation.id}</h3>
+                        <p>Grant ID: {evaluation.grant_id} | Project ID: {evaluation.project_id}</p>
+                      </div>
+                      <span
+                        style={{
+                          padding: '0.5rem 1rem',
+                          borderRadius: '4px',
+                          backgroundColor:
+                            evaluation.recommendation === 'APPLY'
+                              ? '#28a745'
+                              : evaluation.recommendation === 'PASS'
+                              ? '#dc3545'
+                              : '#ffc107',
+                          color: 'white',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        {evaluation.recommendation}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {evaluation.red_flags && evaluation.red_flags.length > 0 && (
-                <div style={{ marginTop: '1rem' }}>
-                  <h4 style={{ color: '#dc3545' }}>Red Flags</h4>
-                  <ul>
-                    {evaluation.red_flags.map((flag, idx) => (
-                      <li key={idx}>{flag}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {evaluation.key_insights && evaluation.key_insights.length > 0 && (
-                <div style={{ marginTop: '1rem' }}>
-                  <h4>Key Insights</h4>
-                  <ul>
-                    {evaluation.key_insights.map((insight, idx) => (
-                      <li key={idx}>{insight}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ))
-        ) : (
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                      <div>
+                        <strong>Timeline:</strong> {evaluation.timeline_viability}/10
+                      </div>
+                      <div>
+                        <strong>Mission:</strong> {evaluation.mission_alignment ?? 'N/A'}/10
+                      </div>
+                      <div>
+                        <strong>Winner Match:</strong> {evaluation.winner_pattern_match ?? 'N/A'}/10
+                      </div>
+                      <div>
+                        <strong>Burden:</strong> {evaluation.application_burden}/10
+                      </div>
+                      <div>
+                        <strong>Structure:</strong> {evaluation.award_structure}/10
+                      </div>
+                      <div>
+                        <strong>Composite:</strong> {evaluation.composite_score}/10
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })
+        ) : !isLoading ? (
           <div className="card">
             <p>No evaluations yet. Create an evaluation to see grant recommendations.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )

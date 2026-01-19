@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
+import ContributionsHistory from '../components/ContributionsHistory'
 import '../App.css'
 
 function Settings() {
+  const [activeTab, setActiveTab] = useState('account') // 'account' or 'contributions'
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -40,18 +42,51 @@ function Settings() {
 
   return (
     <div className="container" style={{ maxWidth: '800px', margin: '2rem auto', padding: '2rem' }}>
-      <h1 style={{ marginBottom: '2rem' }}>Account Settings</h1>
+      <h1 style={{ marginBottom: '2rem', color: '#333' }}>Settings</h1>
 
-      <div className="card" style={{ marginBottom: '2rem' }}>
-        <h2 style={{ marginBottom: '1rem', color: '#333' }}>Account Information</h2>
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '2px solid #e5e7eb' }}>
+        <button
+          onClick={() => setActiveTab('account')}
+          style={{
+            padding: '0.75rem 1.5rem',
+            border: 'none',
+            background: 'none',
+            borderBottom: activeTab === 'account' ? '3px solid #2563eb' : '3px solid transparent',
+            color: activeTab === 'account' ? '#2563eb' : '#666',
+            fontWeight: activeTab === 'account' ? 'bold' : 'normal',
+            cursor: 'pointer',
+            fontSize: '1rem'
+          }}
+        >
+          Account
+        </button>
+        <button
+          onClick={() => setActiveTab('contributions')}
+          style={{
+            padding: '0.75rem 1.5rem',
+            border: 'none',
+            background: 'none',
+            borderBottom: activeTab === 'contributions' ? '3px solid #2563eb' : '3px solid transparent',
+            color: activeTab === 'contributions' ? '#2563eb' : '#666',
+            fontWeight: activeTab === 'contributions' ? 'bold' : 'normal',
+            cursor: 'pointer',
+            fontSize: '1rem'
+          }}
+        >
+          My Contributions
+        </button>
+      </div>
+
+      {activeTab === 'account' && (
+        <>
+          <div className="card" style={{ marginBottom: '2rem' }}>
+            <h2 style={{ marginBottom: '1rem', color: '#333' }}>Account Information</h2>
         <div style={{ marginBottom: '0.5rem' }}>
           <strong>Email:</strong> {user?.email}
         </div>
         <div style={{ marginBottom: '0.5rem' }}>
           <strong>Name:</strong> {user?.full_name || 'Not set'}
-        </div>
-        <div style={{ marginBottom: '0.5rem' }}>
-          <strong>Account Created:</strong> {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
         </div>
       </div>
 
@@ -90,7 +125,7 @@ function Settings() {
         {showDeleteConfirm && !deleteSuccess && (
           <div>
             <p style={{ marginBottom: '1rem', color: '#dc3545', fontWeight: 'bold' }}>
-              ⚠️ This action cannot be undone!
+              Warning: This action cannot be undone!
             </p>
             <p style={{ marginBottom: '1rem', color: '#666' }}>
               To confirm, please type <strong>DELETE</strong> in the box below:
@@ -157,7 +192,7 @@ function Settings() {
         {deleteSuccess && (
           <div style={{ textAlign: 'center', padding: '2rem' }}>
             <p style={{ color: '#28a745', fontSize: '1.1rem', marginBottom: '1rem' }}>
-              ✓ Your account has been deleted successfully.
+              Your account has been deleted successfully.
             </p>
             <p style={{ color: '#666' }}>
               You will be redirected to the home page shortly...
@@ -165,6 +200,12 @@ function Settings() {
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {activeTab === 'contributions' && (
+        <ContributionsHistory />
+      )}
     </div>
   )
 }

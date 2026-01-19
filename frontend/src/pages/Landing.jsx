@@ -139,7 +139,7 @@ function Landing() {
                 }}
                 tabIndex={-1}
               >
-                {showPassword ? '👁️' : '👁️‍🗨️'}
+                {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
             {grantUrl && (

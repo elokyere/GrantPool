@@ -16,7 +16,7 @@ import traceback
 import logging
 
 from app.core.config import settings
-from app.core.middleware import AuditLogMiddleware, get_rate_limiter
+from app.core.middleware import AuditLogMiddleware, CSRFProtectionMiddleware, get_rate_limiter
 from app.api.v1 import api_router
 from app.db.database import engine
 from app.db import models
@@ -118,14 +118,19 @@ async def security_headers_middleware(request: Request, call_next):
     
     return response
 
-# CORS middleware
+# CORS middleware - restricted for security
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept"],
+    expose_headers=["X-Request-ID"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# CSRF protection middleware (before audit logging)
+app.add_middleware(CSRFProtectionMiddleware)
 
 # Audit logging middleware
 app.add_middleware(AuditLogMiddleware)

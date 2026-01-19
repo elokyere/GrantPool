@@ -74,7 +74,7 @@ function Login() {
               }}
               tabIndex={-1}
             >
-              {showPassword ? '👁️' : '👁️‍🗨️'}
+              {showPassword ? 'Hide' : 'Show'}
             </button>
           </div>
           <div style={{ textAlign: 'right', marginBottom: '1rem' }}>

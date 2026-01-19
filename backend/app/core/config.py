@@ -104,10 +104,14 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Validate SECRET_KEY strength in production
-if not settings.DEBUG:
-    try:
-        settings.validate_secret_key()
-    except ValueError as e:
-        import warnings
-        warnings.warn(str(e), UserWarning)
+# Validate SECRET_KEY strength (always, but enforce in production)
+try:
+    settings.validate_secret_key()
+except ValueError as e:
+    import warnings
+    if settings.DEBUG:
+        # In development, warn but don't fail
+        warnings.warn(f"SECRET_KEY validation failed: {e}. This will cause errors in production.", UserWarning)
+    else:
+        # In production, raise error
+        raise ValueError(f"SECRET_KEY validation failed: {e}")

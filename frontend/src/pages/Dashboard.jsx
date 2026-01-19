@@ -50,8 +50,6 @@ function Dashboard() {
 
   const queryClient = useQueryClient()
 
-  console.log('[Dashboard] Setting up queries')
-
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {

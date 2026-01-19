@@ -196,6 +196,34 @@ def send_grant_approval_notification(
                         "style": "danger",
                         "value": f"grant_{grant_id}_reject",
                         "action_id": "grant_reject"
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Delete"
+                        },
+                        "style": "danger",
+                        "value": f"grant_{grant_id}_delete",
+                        "action_id": "grant_delete",
+                        "confirm": {
+                            "title": {
+                                "type": "plain_text",
+                                "text": "Delete Grant"
+                            },
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"Are you sure you want to delete grant *{grant_name}*? This will unlink evaluations but preserve them."
+                            },
+                            "confirm": {
+                                "type": "plain_text",
+                                "text": "Yes, Delete"
+                            },
+                            "deny": {
+                                "type": "plain_text",
+                                "text": "Cancel"
+                            }
+                        }
                     }
                 ]
             }
@@ -269,6 +297,31 @@ def send_support_request_notification(
                     "type": "mrkdwn",
                     "text": message_text
                 }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Acknowledge"
+                        },
+                        "style": "primary",
+                        "value": f"support_{request_id}_acknowledge",
+                        "action_id": "support_acknowledge"
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Resolve"
+                        },
+                        "style": "primary",
+                        "value": f"support_{request_id}_resolve",
+                        "action_id": "support_resolve"
+                    }
+                ]
             }
         ]
     }
@@ -285,12 +338,115 @@ def send_support_request_notification(
         # Non-critical - email notification still sent
 
 
+def send_contribution_review_notification(
+    contribution_id: int,
+    grant_name: str,
+    field_name: str,
+    field_value: str,
+    user_email: str,
+    source_url: Optional[str] = None
+) -> None:
+    """
+    Send Slack notification for pending contribution review.
+    
+    This is a notification only. Action must come from Slack button click.
+    
+    Args:
+        contribution_id: Contribution ID
+        grant_name: Grant name
+        field_name: Field being contributed (e.g., 'award_amount')
+        field_value: Value provided by user
+        user_email: Email of user who submitted
+        source_url: Optional source URL
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    if not settings.SLACK_WEBHOOK_URL:
+        logger.warning(f"SLACK_WEBHOOK_URL not configured - cannot send contribution notification")
+        return
+    
+    import httpx
+    
+    # Format field name for display
+    field_labels = {
+        'award_amount': 'Award Amount',
+        'deadline': 'Application Deadline',
+        'decision_date': 'Decision Date',
+        'acceptance_rate': 'Acceptance Rate',
+        'past_recipients': 'Past Recipients',
+        'eligibility': 'Eligibility Criteria',
+        'preferred_applicants': 'Preferred Applicants',
+        'application_requirements': 'Application Requirements',
+        'award_structure': 'Award Structure',
+        'other': 'Other Information'
+    }
+    field_display = field_labels.get(field_name, field_name.replace('_', ' ').title())
+    
+    # Build message
+    message_text = f"*Grant Data Contribution #{contribution_id}*\n\n"
+    message_text += f"*Grant:* {grant_name}\n"
+    message_text += f"*Field:* {field_display}\n"
+    message_text += f"*Value:* {field_value[:200]}{'...' if len(field_value) > 200 else ''}\n"
+    message_text += f"*Submitted by:* {user_email}\n"
+    if source_url:
+        message_text += f"*Source:* {source_url}\n"
+    
+    payload = {
+        "text": f"New contribution pending review: {field_display} for {grant_name}",
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": message_text
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Approve"
+                        },
+                        "style": "primary",
+                        "value": f"contribution_{contribution_id}_approve",
+                        "action_id": "contribution_approve"
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Reject"
+                        },
+                        "style": "danger",
+                        "value": f"contribution_{contribution_id}_reject",
+                        "action_id": "contribution_reject"
+                    }
+                ]
+            }
+        ]
+    }
+    
+    try:
+        with httpx.Client(timeout=10) as client:
+            response = client.post(settings.SLACK_WEBHOOK_URL, json=payload)
+            response.raise_for_status()
+            logger.info(f"Successfully sent Slack notification for contribution {contribution_id}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Slack API returned error {e.response.status_code}: {e.response.text}")
+    except Exception as e:
+        logger.error(f"Failed to send Slack notification for contribution {contribution_id}: {str(e)}")
+
+
 def parse_button_value(value: str) -> Optional[Dict[str, str]]:
     """
     Parse Slack button value to extract entity and action.
     
     Format: "{entity_type}_{entity_id}_{action}"
-    Example: "grant_123_approve"
+    Example: "grant_123_approve" or "contribution_456_approve"
     
     Args:
         value: Button value string
@@ -305,11 +461,11 @@ def parse_button_value(value: str) -> Optional[Dict[str, str]]:
     entity_type, entity_id_str, action = parts
     
     # Validate entity types (strict allowlist)
-    if entity_type not in ['grant']:
+    if entity_type not in ['grant', 'contribution', 'support']:
         return None
     
     # Validate actions (strict allowlist)
-    if action not in ['approve', 'reject']:
+    if action not in ['approve', 'reject', 'delete', 'acknowledge', 'resolve']:
         return None
     
     try:

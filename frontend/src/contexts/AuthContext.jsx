@@ -22,9 +22,16 @@ export function AuthProvider({ children }) {
       const response = await api.get('/api/v1/auth/me')
       setUser(response.data)
     } catch (error) {
-      localStorage.removeItem('token')
-      setToken(null)
-      delete api.defaults.headers.common['Authorization']
+      // 401 is expected when there's no valid token - silently handle it
+      if (error.response?.status === 401) {
+        // Token is invalid or expired - clear it
+        localStorage.removeItem('token')
+        setToken(null)
+        delete api.defaults.headers.common['Authorization']
+      } else {
+        // Log other errors for debugging
+        console.error('Error fetching user:', error)
+      }
     } finally {
       setLoading(false)
     }
