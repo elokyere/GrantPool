@@ -84,9 +84,38 @@ class ProjectCreate(BaseModel):
     has_prior_grants: bool | None = None
     profile_metadata: dict | None = None  # JSONB for flexible additional data
 
+    @field_validator('description')
+    @classmethod
+    def validate_description_word_limit(cls, v: str) -> str:
+        """Validate description is within 100 word limit."""
+        if not v or not v.strip():
+            return v
+        words = v.strip().split()
+        if len(words) > 100:
+            # Truncate to 100 words
+            truncated = ' '.join(words[:100])
+            return truncated
+        return v
+
 
 class ProjectUpdate(BaseModel):
     name: str | None = None
+    description: str | None = None
+    stage: str | None = None
+    funding_need: str | None = None
+    urgency: str | None = None
+    founder_type: str | None = None
+    timeline_constraints: str | None = None
+    organization_country: str | None = None
+    organization_type: str | None = None
+    funding_need_amount: int | None = None
+    funding_need_currency: str | None = None
+    has_prior_grants: bool | None = None
+    profile_metadata: dict | None = None
+
+    @field_validator('description')
+    @classmethod
+    def validate_description_word_limit(cls, v: str | None) -> str | None:
         """Validate description is within 100 word limit."""
         if not v or not v.strip():
             return v
@@ -95,11 +124,8 @@ class ProjectUpdate(BaseModel):
         if len(words) > 100:
             # Truncate to 100 words
             truncated = ' '.join(words[:100])
-    organization_type: str | None = None
-    funding_need_amount: int | None = None
-    funding_need_currency: str | None = None
-    has_prior_grants: bool | None = None
-    profile_metadata: dict | None = None
+            return truncated
+        return v
 
 
 class ProjectResponse(BaseModel):
