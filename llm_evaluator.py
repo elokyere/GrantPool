@@ -181,6 +181,16 @@ def format_grant_info(grant: GrantInfo) -> str:
 
 def format_user_context(user: UserContext) -> str:
     """Format user context for the LLM prompt."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # CRITICAL: Log project data being formatted to catch mismatches
+    logger.info("=" * 60)
+    logger.info("FORMATTING USER CONTEXT FOR LLM")
+    logger.info(f"  Project Description (first 200 chars): {user.project_description[:200] if user.project_description else 'None'}...")
+    logger.info(f"  Project Stage: {user.project_stage}")
+    logger.info("=" * 60)
+    
     parts = [
         f"Project Stage: {user.project_stage}",
         f"Funding Need: {user.funding_need}",
@@ -194,7 +204,12 @@ def format_user_context(user: UserContext) -> str:
     if user.timeline_constraints:
         parts.append(f"Timeline Constraints: {user.timeline_constraints}")
     
-    return "\n".join(parts)
+    formatted = "\n".join(parts)
+    
+    # Log the formatted context being sent to LLM
+    logger.info(f"Formatted user context being sent to LLM (first 300 chars): {formatted[:300]}...")
+    
+    return formatted
 
 
 class LLMGrantEvaluator:
@@ -225,181 +240,204 @@ class LLMGrantEvaluator:
         self.model = model
         self.system_prompt = load_system_prompt()
     
-    def evaluate(self, grant: GrantInfo, user: UserContext, evaluation_tier: str = "standard") -> EvaluationResult:
+    def evaluate(self, grant: GrantInfo, user: Optional[UserContext] = None, assessment_type: str = "free") -> EvaluationResult:
         """
         Evaluate a grant using the LLM with the GrantFilter system prompt.
         
         Args:
             grant: Grant information to evaluate
-            user: User context and constraints
-            evaluation_tier: "free", "refined", or "standard" - affects evaluation depth
+            user: User context and constraints (required for paid assessments, None for free)
+            assessment_type: "free" or "paid" - determines what to assess
             
         Returns:
             EvaluationResult with scores, recommendation, and reasoning
         """
-        # Format inputs for the LLM
+        # Format grant information
         grant_text = format_grant_info(grant)
         
-        # For free tier, use conservative defaults (minimal context)
-        if evaluation_tier == "free":
-            # Use minimal/placeholder context for free tier
-            user_text = """Project Stage: Not specified
-Funding Need: Not specified
-Urgency: Not specified
-Project Description: Not specified
-Note: This is a free assessment with conservative defaults. Provide a refined assessment with full project context for more accurate evaluation."""
-        else:
-            # Use full context for refined/standard tiers
+        # Free tier: NO project data - assess grant quality only
+        if assessment_type == "free":
+            user_text = """
+NOTE: This is a FREE TIER assessment. You are assessing GRANT QUALITY ONLY.
+Do NOT consider any specific applicant's fit. You do not have project data.
+
+Assess:
+- Grant clarity and transparency
+- Access barriers (application complexity)
+- Timeline viability
+- Award structure transparency
+- Competition level (if data available)
+
+Do NOT assess:
+- Mission alignment (requires project data)
+- Profile match (requires project data)
+- Funding fit (requires project data)
+"""
+        else:  # paid tier: REQUIRES project data
+            if user is None:
+                raise ValueError("User context is required for paid assessments")
             user_text = format_user_context(user)
         
-        # Add instructions for past winner research
+        # Add instructions for recipient/competition data extraction
         research_instructions = f"""
-IMPORTANT: Attempt to verify past winners for this grant to inform "winner_pattern_match".
+IMPORTANT: Use recipient_patterns data if available in grant data.
 
 Grant Name: {grant.name}
 
-Suggested verification queries (attempt, but do not assume browsing is available):
-- "{grant.name} recipients 2023"
-- "{grant.name} awardees 2024"
-- "{grant.name} past winners"
+If recipient_patterns data is available:
+- Use it to assess competition level and profile match
+- Note the source (official, estimated, llm-extracted)
+- Note the confidence level (high, medium, low)
 
-If you cannot verify past winner information:
-1. Score winner_pattern_match at 4-5 (uncertainty penalty)
-2. Explicitly state in reasoning that past winners could not be confirmed
-3. Note in confidence_notes that winner pattern verification is missing
-4. Do NOT guess winner patterns
+If recipient_patterns data is NOT available:
+- Set competition level to "UNKNOWN"
+- Set profile match to null (INSUFFICIENT_DATA)
+- Explicitly state what data is missing
+- Do NOT guess or infer patterns
 
-Acknowledge inability to verify if data is unavailable.
+Always tag data with source and confidence.
 """
         
         # Add tier-specific instructions
-        tier_instructions = ""
-        if evaluation_tier == "free":
+        if assessment_type == "free":
             tier_instructions = """
-CRITICAL: This is a FREE TIER assessment. You MUST follow these restrictions:
+CRITICAL: This is a FREE TIER assessment. You MUST follow these rules:
 
-1. RECOMMENDATION RESTRICTION:
+1. ASSESSMENT SCOPE:
+   - Assess ONLY grant quality characteristics
+   - Do NOT assess fit/match (no project data available)
+   - Focus on: clarity, access barriers, timeline, award structure, competition
+
+2. RECOMMENDATION RESTRICTION:
    - You can ONLY return "CONDITIONAL" or "PASS"
    - NEVER return "APPLY" for free assessments
-   - Free assessments create tension, not resolution
+   - Free assessments show grant quality, not personalized fit
 
-2. SCORE LIMITATIONS:
-   - If award amount is undisclosed → award_structure max = 6.0
-   - If no past winners found → winner_pattern_match max = 4.0 (you already do this)
-   - If timeline unclear → timeline_viability max = 6.0
-   - Missing critical data caps composite score (cannot exceed 6.5)
+3. SCORING APPROACH:
+   - timeline_viability: Assess timeline clarity and deadline viability (not fit)
+   - winner_pattern_match: Set to NULL or 0 - cannot assess without project data
+   - mission_alignment: Set to NULL or 0 - cannot assess without project data
+   - application_burden: Assess access barrier (inverted: low barrier = high score)
+   - award_structure: Assess award structure transparency
 
-3. REASONING RESTRICTIONS:
-   - Provide surface-level explanations only
-   - NO decision gates or concrete conditions
-   - NO success probability estimates
-   - NO pattern knowledge/heuristics
-   - NO opportunity cost framing
-   - NO brutal truths (be diplomatic about limitations)
+4. OUTPUT REQUIREMENTS:
+   - Provide "good_fit_if" categories (based on grant characteristics)
+   - Provide "poor_fit_if" categories (based on grant characteristics)
+   - Explicitly state: "We don't have your project details yet"
+   - Include actionable_next_step (non-decisional)
+   - Tag all assessments with confidence levels
 
-4. EXPLICIT UNCERTAINTY:
-   - MUST include: "This assessment is limited by missing information about [specific missing data]"
-   - This creates intentional friction that makes paid upgrade logical
+5. CONFIDENCE & SOURCE TAGGING:
+   - Always indicate confidence (high, medium, low, unknown)
+   - Always indicate source when applicable (official, estimated, llm-extracted)
+   - If data is missing, return "UNKNOWN" not a guess
 
-5. CONFIDENCE NOTES:
-   - State that this is an incomplete assessment
-   - Note that full project context is needed for accurate evaluation
-   - Do NOT include confidence_index (0-1 score) - that's paid-only
+6. HONESTY PRINCIPLE:
+   - Never score fit/match dimensions without project data
+   - Use NULL or 0 for dimensions that require project data
+   - Explicitly state what data is missing
+   - Do NOT use generic language like "appears to align" or "likely project"
 
-6. ACTIONABLE NEXT STEP (REQUIRED):
-   - Provide exactly one concrete next step that increases certainty (non-decisional)
-   - Examples: "Confirm award amount is published on the grant page", "Identify one past recipient within 30 minutes"
-   - Do NOT use "apply", "don’t apply", or equivalents as the next step
-
-REMEMBER: Free assessments should create tension. Paid assessments resolve it.
-If free resolves the decision, no one pays. If free is useless, no one trusts you.
+REMEMBER: Free assessments provide grant quality intel. Paid assessments provide personalized fit.
 """
-        elif evaluation_tier == "refined":
-            tier_instructions = """
-IMPORTANT: This is a REFINED assessment with full project context.
-- User has provided complete project details
-- Use full context for accurate scoring
-- This is an upgrade from a free tier assessment
-"""
-        else:  # standard (paid)
+        else:  # paid tier
             tier_instructions = """
 CRITICAL: This is a PAID TIER assessment. You MUST provide full decision compression:
 
-1. HARD RECOMMENDATION:
+1. ASSESSMENT SCOPE:
+   - Assess personalized fit using project data
+   - Mission alignment (grant vs. project)
+   - Profile match (user vs. past recipients)
+   - Funding fit (grant award vs. project needs)
+   - Effort-reward ratio
+   - Strategic recommendations
+
+2. HARD RECOMMENDATION:
    - You CAN return "APPLY" if warranted
    - Be decisive - paid users want authority, not hedging
    - If recommending PASS, be confident and direct
 
-2. SUCCESS PROBABILITY:
-   - Provide success_probability_range field (e.g., "5-12%", "25-35%")
-   - Even rough ranges are powerful for decision-making
-   - Base on: composite score, competition level, data availability
+3. REQUIRED FIELDS (all must be present):
+   - success_probability_range: "X-Y%" or "UNKNOWN" if no competition data
+   - decision_gates: Array of concrete conditions (required for CONDITIONAL or APPLY)
+   - pattern_knowledge: Non-obvious insights from grant patterns
+   - opportunity_cost: Time/alternative framing
+   - confidence_index: 0.0-1.0 based on data completeness
 
-3. DECISION GATES (required for CONDITIONAL or APPLY):
-   - Provide decision_gates array with concrete conditions
-   - Example: ["Can identify ≥1 prior recipient within 30 minutes", "Not relying on this funding within 90 days"]
-   - Turn analysis into action logic
+4. CONFIDENCE & SOURCE TAGGING:
+   - Always indicate confidence for each assessment
+   - Always indicate source when applicable
+   - If recipient data insufficient (<5 recipients), set profile_match to null
+   - If competition data missing, set success_probability to "UNKNOWN"
 
-4. PATTERN KNOWLEDGE:
-   - Provide pattern_knowledge field with non-obvious insights
-   - Example: "Funds branded as 'innovation' without published award sizes are often discretionary pools used opportunistically"
-   - This is insight, not data - what free tools never give
+5. STRATEGIC RECOMMENDATIONS:
+   - Competitive advantages (what makes user strong)
+   - Areas to strengthen (what to emphasize)
+   - Red flags to avoid (what not to do)
+   - Application strategy (how to position)
 
-5. OPPORTUNITY COST:
-   - Provide opportunity_cost field
-   - Tie decision to time and alternatives
-   - Example: "The 5-10 hours required here would yield higher ROI if applied to 3 smaller, faster grants"
-
-6. CONFIDENCE INDEX:
-   - Provide confidence_index (0.0-1.0) based on data completeness
-   - Higher = more confident in assessment
-   - Explain primary uncertainty sources in confidence_notes
-
-7. NO HEDGING:
+6. NO HEDGING:
    - Be opinionated and slightly uncomfortable (builds trust)
    - Include one "brutal truth" line that stings slightly
-   - Example: "This grant is more likely to reward organizations already known to the funder than first-time applicants"
+   - Base recommendations on evidence, not optimism
+
+7. HONESTY PRINCIPLE:
+   - If data is insufficient, return null/unknown, not a guess
+   - Explicitly state limitations
+   - Show your work (explain score basis)
 
 REMEMBER: Paid assessments remove ambiguity and transfer decision authority.
 Users are paying for clarity, compression, and authority.
 """
         
         # Build JSON schema based on tier
-        if evaluation_tier == "free":
+        if assessment_type == "free":
             json_schema_note = """
-Required JSON format (FREE TIER):
+Required JSON format (FREE TIER - Grant Quality Only):
 {
+  "grant_quality": {
+    "clarity_score": 0-10,
+    "access_barrier": "LOW" | "MEDIUM" | "HIGH",
+    "timeline_status": "GREEN" | "YELLOW" | "RED" | "UNKNOWN",
+    "award_structure_score": 0-10,
+    "competition_level": "HIGHLY COMPETITIVE" | "COMPETITIVE" | "MODERATE" | "ACCESSIBLE" | "UNKNOWN"
+  },
   "scores": {
     "timeline_viability": 0-10,
-    "winner_pattern_match": 0-10,
-    "mission_alignment": 0-10,
+    "winner_pattern_match": null | 0,
+    "mission_alignment": null | 0,
     "application_burden": 0-10,
     "award_structure": 0-10
   },
   "composite_score": 0-10,
   "recommendation": "CONDITIONAL" | "PASS" (NEVER "APPLY"),
   "reasoning": {
+    "clarity": "string",
+    "access_barrier": "string",
     "timeline": "string",
-    "winner_pattern_match": "string",
-    "mission_alignment": "string",
-    "application_burden": "string",
-    "award_structure": "string"
+    "award_structure": "string",
+    "competition": "string"
   },
-  "key_insights": ["string"],
+  "good_fit_if": ["string"],
+  "poor_fit_if": ["string"],
   "red_flags": ["string"],
   "confidence_notes": "string",
-  "actionable_next_step": "string (one concrete, non-decisional next step)"
+  "actionable_next_step": "string"
 }
 
-DO NOT include: success_probability_range, decision_gates, pattern_knowledge, opportunity_cost, confidence_index
+IMPORTANT:
+- Set winner_pattern_match and mission_alignment to null (cannot assess without project data)
+- Include confidence tags for all assessments
+- Include source tags when applicable
+- If competition data unavailable, set competition_level to "UNKNOWN"
 """
         else:  # paid tier
             json_schema_note = """
-Required JSON format (PAID TIER):
+Required JSON format (PAID TIER - Personalized Fit):
 {
   "scores": {
     "timeline_viability": 0-10,
-    "winner_pattern_match": 0-10,
+    "winner_pattern_match": 0-10 | null,
     "mission_alignment": 0-10,
     "application_burden": 0-10,
     "award_structure": 0-10
@@ -413,24 +451,45 @@ Required JSON format (PAID TIER):
     "application_burden": "string",
     "award_structure": "string"
   },
+  "mission_alignment_details": {
+    "strong_matches": ["string"],
+    "gaps": ["string"],
+    "confidence": "high" | "medium" | "low"
+  },
+  "profile_match_details": {
+    "score": 0-10 | null,
+    "similarities": ["string"],
+    "differences": ["string"],
+    "confidence": "high" | "medium" | "low" | "unknown",
+    "recipient_count": number,
+    "reason": "INSUFFICIENT_DATA" | null
+  },
+  "funding_fit": {
+    "assessment": "ALIGNED" | "PARTIAL" | "MISMATCHED" | "INSUFFICIENT" | "UNCERTAIN",
+    "severity": "CRITICAL" | "HIGH" | "MODERATE" | "LOW" | null,
+    "reasoning": "string"
+  },
   "key_insights": ["string"],
   "red_flags": ["string"],
   "confidence_notes": "string",
-  "success_probability_range": "string (e.g., '5-12%')",
+  "success_probability_range": "string (e.g., '15-20%')" | "UNKNOWN",
   "decision_gates": ["string"],
   "pattern_knowledge": "string",
   "opportunity_cost": "string",
-  "confidence_index": 0.0-1.0
+  "confidence_index": 0.0-1.0,
+  "strategic_recommendations": {
+    "competitive_advantages": ["string"],
+    "areas_to_strengthen": ["string"],
+    "red_flags_to_avoid": ["string"],
+    "application_strategy": "string"
+  }
 }
 
-All paid-tier fields are REQUIRED.
+All paid-tier fields are REQUIRED. If data is insufficient, use null or "UNKNOWN", not guesses.
 """
         
         user_message = f"""Extracted Grant Information:
 {grant_text}
-
-User Project Context:
-{user_text}
 
 {tier_instructions}
 
@@ -440,23 +499,24 @@ User Project Context:
 
 Evaluate this grant and return ONLY valid JSON in the required format. No prose outside JSON. No markdown.
 
-Remember: Use the weighted formula for composite score:
-Composite = (Timeline × 0.25) + (Winner Match × 0.25) + (Alignment × 0.25) + (Burden × 0.15) + (Award × 0.10)
+CRITICAL RULES:
+- Always tag assessments with confidence (high, medium, low, unknown)
+- Always tag data with source when applicable (official, estimated, llm-extracted, admin)
+- If data is missing, return null or "UNKNOWN", do NOT guess
+- Never use generic language like "appears to align" or "likely project"
+- Be honest about what you know vs. what you're guessing
 
-FREE TIER recommendation rules:
-- NEVER return "APPLY" (only CONDITIONAL or PASS)
-- Missing data caps scores (see tier instructions above)
+FREE TIER:
+- Assess grant quality only (no project data)
+- Set fit/match scores to null
+- NEVER return "APPLY"
 
-PAID TIER recommendation thresholds:
-- 8.0+: APPLY (with decision gates)
-- 6.5-7.9: CONDITIONAL (with decision gates)
-- 5.0-6.4: PASS
-- <5.0: PASS (hard)
-
-Data availability enforcement:
-- If award amount undisclosed → award_structure max = 6.0, composite cannot exceed 6.5
-- If no past winners found → winner_pattern_match max = 4.0
-- If timeline unclear → timeline_viability max = 6.0"""
+PAID TIER:
+- Assess personalized fit with project data
+- All required fields must be present
+- If recipient data insufficient (<5), set profile_match to null
+- If competition data missing, set success_probability to "UNKNOWN"
+"""
         
         # Call Claude API with increased token limit for detailed reasoning
         message = self.client.messages.create(
@@ -506,10 +566,10 @@ Data availability enforcement:
                 )
         
         # Validate and convert to EvaluationResult
-        result = self._parse_result(result_dict)
+        result = self._parse_result(result_dict, assessment_type)
         
         # Enforce free tier restrictions
-        if evaluation_tier == "free":
+        if assessment_type == "free":
             result = self._enforce_free_tier_restrictions(result, grant)
         
         return result
@@ -553,13 +613,27 @@ Data availability enforcement:
                     " Timeline information unclear - score capped at 6.0 for free assessment."
                 ).strip()
         
-        # Recalculate composite with capped scores
+        # Recalculate composite using free tier formula (grant quality only)
+        # Free tier: clarity, timeline, award structure, access barrier (inverted)
+        # Note: winner_pattern_match and mission_alignment are 0 for free tier
+        
+        # Invert access burden (low barrier = high score)
+        access_score = 10.0 - min(scores.application_burden, 10.0)
+        
+        # Extract clarity score from reasoning if available, otherwise use award structure as proxy
+        clarity_score = scores.award_structure
+        if "_clarity_score" in result.reasoning:
+            try:
+                clarity_score = float(result.reasoning.get("_clarity_score", clarity_score))
+            except (ValueError, TypeError):
+                pass
+        
+        # Free tier composite formula (from scoring service)
         composite = (
-            scores.timeline_viability * 0.25 +
-            scores.winner_pattern_match * 0.25 +
-            scores.mission_alignment * 0.25 +
-            scores.application_burden * 0.15 +
-            scores.award_structure * 0.10
+            clarity_score * 0.30 +      # Clarity is most important
+            scores.timeline_viability * 0.25 +     # Timeline matters
+            scores.award_structure * 0.25 +        # Award structure transparency
+            access_score * 0.20   # Access barrier (inverted)
         )
         
         # Cap composite at 6.5 if critical data is missing
@@ -569,8 +643,7 @@ Data availability enforcement:
         )
         if not has_critical_data:
             composite = min(composite, 6.5)
-            if "composite_score" not in result.confidence_notes.lower():
-                result.confidence_notes += " Composite score capped at 6.5 due to missing critical grant information."
+            # Note: Composite score capping info is implicit in the 2-sentence confidence note above
         
         result.composite_score = composite
         
@@ -600,7 +673,7 @@ Data availability enforcement:
         result.opportunity_cost = None
         result.confidence_index = None
         
-        # 5. Ensure explicit uncertainty statement in confidence_notes
+        # 5. Ensure explicit uncertainty statement in confidence_notes (2 sentences max)
         missing_info = []
         if not grant.award_amount or not grant.award_amount.strip():
             missing_info.append("award amount")
@@ -610,9 +683,9 @@ Data availability enforcement:
             missing_info.append("preferred applicant details")
         
         if missing_info:
-            uncertainty_note = f"This assessment is limited by missing information about {', '.join(missing_info)}."
-            if uncertainty_note.lower() not in result.confidence_notes.lower():
-                result.confidence_notes = f"{uncertainty_note} {result.confidence_notes}".strip()
+            # Create concise 2-sentence note
+            missing_text = ', '.join(missing_info)
+            result.confidence_notes = f"This assessment is limited by missing information about {missing_text}. Without your project details, we cannot evaluate personalized fit or make a definitive recommendation."
         
         # 6. Ensure actionable next step exists and is non-decisional
         def _valid_next_step(text: Optional[str]) -> bool:
@@ -634,7 +707,7 @@ Data availability enforcement:
         
         return result
     
-    def _parse_result(self, result_dict: Dict) -> EvaluationResult:
+    def _parse_result(self, result_dict: Dict, assessment_type: str = "free") -> EvaluationResult:
         """Parse LLM JSON response into EvaluationResult."""
         # Validate required fields
         required_fields = ["scores", "composite_score", "recommendation", "reasoning"]
@@ -644,23 +717,27 @@ Data availability enforcement:
         
         # Validate score fields
         scores_dict = result_dict.get("scores", {})
-        required_scores = ["timeline_viability", "winner_pattern_match", "mission_alignment", 
-                           "application_burden", "award_structure"]
+        required_scores = ["timeline_viability", "application_burden", "award_structure"]
         for score_field in required_scores:
             if score_field not in scores_dict:
                 raise ValueError(f"Missing required score field: {score_field}")
         
-        # Parse scores
+        # Parse scores (handle null values for free tier)
         scores_dict = result_dict["scores"]
         def _to_float(value) -> float:
+            if value is None:
+                return 0.0
             try:
                 return float(value)
             except Exception:
                 return 0.0
+        
+        # For free tier, winner_pattern_match and mission_alignment should be null/0
+        # For paid tier, they should have values
         scores = EvaluationScores(
             timeline_viability=_to_float(scores_dict.get("timeline_viability", 0)),
-            winner_pattern_match=_to_float(scores_dict.get("winner_pattern_match", 0)),
-            mission_alignment=_to_float(scores_dict.get("mission_alignment", 0)),
+            winner_pattern_match=_to_float(scores_dict.get("winner_pattern_match", 0)) if assessment_type == "paid" else 0.0,
+            mission_alignment=_to_float(scores_dict.get("mission_alignment", 0)) if assessment_type == "paid" else 0.0,
             application_burden=_to_float(scores_dict.get("application_burden", 0)),
             award_structure=_to_float(scores_dict.get("award_structure", 0)),
         )
@@ -675,6 +752,11 @@ Data availability enforcement:
         rec_str = result_dict["recommendation"].upper()
         if rec_str not in ["APPLY", "CONDITIONAL", "PASS"]:
             raise ValueError(f"Invalid recommendation: {rec_str}")
+        
+        # Enforce free tier restriction: never APPLY
+        if assessment_type == "free" and rec_str == "APPLY":
+            raise ValueError("Free tier assessments cannot return APPLY recommendation. Only CONDITIONAL or PASS allowed.")
+        
         recommendation = Recommendation(rec_str)
         
         # Parse reasoning
@@ -682,9 +764,23 @@ Data availability enforcement:
         if not isinstance(reasoning, dict):
             raise ValueError("Reasoning must be a dictionary")
         
+        # Handle different reasoning structures for free vs paid
+        if assessment_type == "free":
+            # Free tier: grant quality reasoning
+            required_reasoning = ["clarity", "access_barrier", "timeline", "award_structure", "competition"]
+            # Map to standard field names for backward compatibility
+            if "clarity" in reasoning:
+                reasoning["_clarity"] = reasoning["clarity"]
+            if "access_barrier" in reasoning:
+                reasoning["application_burden"] = reasoning.get("application_burden", reasoning["access_barrier"])
+            if "competition" in reasoning:
+                reasoning["_competition"] = reasoning["competition"]
+        else:
+            # Paid tier: fit assessment reasoning
+            required_reasoning = ["timeline", "winner_pattern_match", "mission_alignment", 
+                                 "application_burden", "award_structure"]
+        
         # Ensure all reasoning fields are present
-        required_reasoning = ["timeline", "winner_pattern_match", "mission_alignment", 
-                             "application_burden", "award_structure"]
         for field in required_reasoning:
             if field not in reasoning:
                 reasoning[field] = "Reasoning not provided"
@@ -700,19 +796,45 @@ Data availability enforcement:
         
         confidence_notes = result_dict.get("confidence_notes", "Confidence assessment not provided")
         
-        # Parse paid-tier fields (optional)
-        success_probability_range = result_dict.get("success_probability_range")
-        decision_gates = result_dict.get("decision_gates")
-        if decision_gates and not isinstance(decision_gates, list):
-            decision_gates = None
-        pattern_knowledge = result_dict.get("pattern_knowledge")
-        opportunity_cost = result_dict.get("opportunity_cost")
-        confidence_index = result_dict.get("confidence_index")
-        if confidence_index is not None:
+        # Parse paid-tier fields (required for paid, None for free)
+        if assessment_type == "paid":
+            # Validate required paid-tier fields
+            success_probability_range = result_dict.get("success_probability_range")
+            if not success_probability_range:
+                success_probability_range = "UNKNOWN"  # Default if missing
+            
+            decision_gates = result_dict.get("decision_gates")
+            if not decision_gates or not isinstance(decision_gates, list):
+                # Default to empty list if missing, will be populated by scoring service if needed
+                decision_gates = []
+            
+            pattern_knowledge = result_dict.get("pattern_knowledge")
+            if not pattern_knowledge:
+                # Default to a message about insufficient data if missing
+                pattern_knowledge = "Insufficient recipient data available to identify non-obvious patterns. Consider contacting the funder for examples of past recipients."
+            
+            opportunity_cost = result_dict.get("opportunity_cost")
+            if not opportunity_cost:
+                # Default to a generic message if missing
+                opportunity_cost = "Time investment required for application preparation and submission."
+            
+            confidence_index = result_dict.get("confidence_index")
+            if confidence_index is None:
+                # Calculate default confidence based on data completeness
+                confidence_index = 0.5  # Default medium confidence
             try:
                 confidence_index = float(confidence_index)
-            except Exception:
-                confidence_index = None
+                if not (0.0 <= confidence_index <= 1.0):
+                    confidence_index = max(0.0, min(1.0, confidence_index))  # Clamp to valid range
+            except (ValueError, TypeError):
+                confidence_index = 0.5  # Default on parse error
+        else:
+            # Free tier: these should be None
+            success_probability_range = None
+            decision_gates = None
+            pattern_knowledge = None
+            opportunity_cost = None
+            confidence_index = None
         
         # Parse free-tier actionable next step (optional globally, required for free tier via enforcement)
         actionable_next_step = result_dict.get("actionable_next_step")

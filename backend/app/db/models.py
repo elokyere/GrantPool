@@ -2,9 +2,11 @@
 Database models.
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, Index
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, Index, Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+import sqlalchemy as sa
 from app.db.database import Base
 
 
@@ -31,6 +33,7 @@ class User(Base):
     evaluations = relationship("Evaluation", back_populates="user")
     payments = relationship("Payment", back_populates="user")
     assessment_purchases = relationship("AssessmentPurchase", back_populates="user")
+    grant_contributions = relationship("GrantDataContribution", foreign_keys="GrantDataContribution.user_id")
 
 
 class Project(Base):
@@ -42,10 +45,21 @@ class Project(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=False)
     stage = Column(String, nullable=False)  # e.g., "Early prototype", "MVP", "Scaling"
-    funding_need = Column(String, nullable=False)
+    funding_need = Column(String, nullable=False)  # Legacy field - kept for backward compatibility
     urgency = Column(String, nullable=False)  # "critical", "moderate", "flexible"
     founder_type = Column(String, nullable=True)  # "solo", "startup", "institution"
     timeline_constraints = Column(Text, nullable=True)
+    
+    # New profile fields (core columns for paid assessments)
+    organization_country = Column(String(2), nullable=True, index=True)  # ISO 3166-1 alpha-2
+    organization_type = Column(String(50), nullable=True, index=True)  # 'NGO', 'Research', 'Government', 'Community', 'Individual'
+    funding_need_amount = Column(Integer, nullable=True)  # Amount in cents
+    funding_need_currency = Column(String(3), nullable=True, index=True)  # ISO 4217 code (USD, GHS, etc.)
+    has_prior_grants = Column(Boolean, nullable=True)
+    
+    # Extended/evolving fields (JSONB for flexibility)
+    profile_metadata = Column(JSONB, nullable=True)  # Stores: team_size, education_level, career_stage, sectors, geographic_focus, project_keywords, timeline, confidence_flags
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -82,6 +96,29 @@ class Grant(Base):
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin user who approved/rejected
     approved_at = Column(DateTime(timezone=True), nullable=True)
     rejection_reason = Column(Text, nullable=True)  # Reason if rejected
+    
+    # Recipient patterns and competition stats (JSONB with source/confidence tagging)
+    recipient_patterns = Column(JSONB, nullable=True)  # Stores recipient data and competition statistics
+    
+    # Decision Readiness System (5 bucket states)
+    timeline_clarity = Column(sa.Enum('known', 'partial', 'unknown', name='bucket_state'), nullable=True)
+    winner_signal = Column(sa.Enum('known', 'partial', 'unknown', name='bucket_state'), nullable=True)
+    mission_specificity = Column(sa.Enum('known', 'partial', 'unknown', name='bucket_state'), nullable=True)
+    application_burden = Column(sa.Enum('known', 'partial', 'unknown', name='bucket_state'), nullable=True)
+    award_structure_clarity = Column(sa.Enum('known', 'partial', 'unknown', name='bucket_state'), nullable=True)
+    
+    # Derived/computed fields
+    decision_readiness = Column(String(50), nullable=True)  # 'Ready for Evaluation', 'Partial — Missing Signals', 'Low Confidence Grant'
+    status_of_knowledge = Column(String(50), nullable=True)  # 'Well-Specified', 'Partially Opaque', 'Structurally Vague'
+    scope = Column(sa.Enum('Local', 'National', 'International', 'Unclear', name='grant_scope'), nullable=True)
+    
+    # Source verification
+    source_verified = Column(Boolean, nullable=True, default=False)
+    source_verified_checked_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Evaluation completion flag
+    evaluation_complete = Column(Boolean, nullable=False, default=False, server_default='false')
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -107,8 +144,8 @@ class Evaluation(Base):
     
     # Scores
     timeline_viability = Column(Integer, nullable=False)
-    winner_pattern_match = Column(Integer, nullable=False)
-    mission_alignment = Column(Integer, nullable=False)
+    winner_pattern_match = Column(Integer, nullable=True)  # NULL for free tier (no project data)
+    mission_alignment = Column(Integer, nullable=True)  # NULL for free tier (no project data)
     application_burden = Column(Integer, nullable=False)
     award_structure = Column(Integer, nullable=False)
     composite_score = Column(Integer, nullable=False)
@@ -124,9 +161,11 @@ class Evaluation(Base):
     
     # Metadata
     evaluator_type = Column(String, nullable=False)  # "rule_based" or "llm"
-    evaluation_tier = Column(String(20), nullable=False, default="standard")  # "free", "refined", "standard"
-    parent_evaluation_id = Column(Integer, ForeignKey("evaluations.id"), nullable=True)  # For refinements
-    is_refinement = Column(Boolean, default=False)  # True if this is a refinement of another evaluation
+    evaluation_tier = Column(String(20), nullable=False, default="standard")  # "free", "refined", "standard" (deprecated, kept for legacy)
+    assessment_type = Column(String(10), nullable=False, default='free', server_default='free')  # 'free' or 'paid' - New two-tier framework
+    is_legacy = Column(Boolean, nullable=False, default=False, server_default='false')  # True for evaluations created before new framework
+    parent_evaluation_id = Column(Integer, ForeignKey("evaluations.id"), nullable=True)  # For refinements (deprecated)
+    is_refinement = Column(Boolean, default=False)  # True if this is a refinement of another evaluation (deprecated)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -152,6 +191,7 @@ class Payment(Base):
     payment_type = Column(String(20), nullable=False, default="standard")  # "refinement", "standard", "bundle"
     country_code = Column(String(2), nullable=True)  # User's country at time of payment
     payment_metadata = Column(JSON, nullable=True)  # Additional Paystack data (renamed from 'metadata' - SQLAlchemy reserved word)
+    converted_to_credit = Column(Boolean, nullable=True, default=False, server_default='false')  # True if refinement payment was converted to bundle credit
     
     # Refund tracking fields
     refund_status = Column(String(20), nullable=True)  # 'none', 'requested', 'approved', 'processed', 'denied'
@@ -260,4 +300,46 @@ class SupportRequest(Base):
     user = relationship("User")
     payment = relationship("Payment")
     evaluation = relationship("Evaluation")
+
+
+class GrantDataContribution(Base):
+    """User contributions for missing grant data."""
+    __tablename__ = "grant_data_contributions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    grant_id = Column(Integer, ForeignKey("grants.id"), nullable=True, index=True)  # Nullable for in-memory grants
+    evaluation_id = Column(Integer, ForeignKey("evaluations.id"), nullable=True, index=True)  # Link to evaluation if grant not indexed
+    
+    # Grant identification (for in-memory grants)
+    grant_name = Column(String, nullable=True)  # Grant name if grant not indexed
+    grant_url = Column(String, nullable=True)  # Grant URL if grant not indexed
+    
+    # Contribution data
+    field_name = Column(String(50), nullable=False, index=True)  # 'award_amount', 'deadline', 'acceptance_rate', 'past_recipients', etc.
+    field_value = Column(Text, nullable=False)  # The value provided by user
+    source_url = Column(String, nullable=True)  # URL where user found the data
+    source_description = Column(Text, nullable=True)  # Additional context about the source
+    
+    # Status tracking
+    status = Column(String(20), nullable=False, default="pending", index=True)  # 'pending', 'approved', 'rejected', 'merged'
+    admin_notes = Column(Text, nullable=True)  # Admin review notes
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who reviewed
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    grant = relationship("Grant")
+    evaluation = relationship("Evaluation")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+    
+    # Index for efficient queries
+    __table_args__ = (
+        Index('idx_contributions_grant_status', 'grant_id', 'status'),
+        Index('idx_contributions_user_status', 'user_id', 'status'),
+    )
 
