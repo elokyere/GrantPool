@@ -30,6 +30,49 @@ async def get_user_profile(
     }
 
 
+@router.get("/me/dashboard")
+async def get_dashboard_summary(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Lightweight summary of the current user's activity for the dashboard.
+
+    Aggregates counts in a single endpoint so the frontend doesn't need multiple
+    round-trips just to render the top-level stats.
+    """
+    # Project count
+    projects_count = (
+        db.query(models.Project)
+        .filter(models.Project.user_id == current_user.id)
+        .count()
+    )
+
+    # Evaluation counts, including by recommendation
+    evaluations_query = db.query(models.Evaluation).filter(
+        models.Evaluation.user_id == current_user.id
+    )
+    evaluations_count = evaluations_query.count()
+
+    apply_count = evaluations_query.filter(
+        models.Evaluation.recommendation == "APPLY"
+    ).count()
+    pass_count = evaluations_query.filter(
+        models.Evaluation.recommendation == "PASS"
+    ).count()
+    conditional_count = evaluations_query.filter(
+        models.Evaluation.recommendation == "CONDITIONAL"
+    ).count()
+
+    return {
+        "projects_count": projects_count,
+        "evaluations_count": evaluations_count,
+        "apply_count": apply_count,
+        "pass_count": pass_count,
+        "conditional_count": conditional_count,
+    }
+
+
 @router.delete("/me", status_code=status.HTTP_200_OK)
 async def delete_account(
     current_user: models.User = Depends(get_current_user),
@@ -81,7 +124,25 @@ async def delete_account(
             db.flush()
         logger.info(f"Deleted {assessment_purchases_count} assessment purchases for user {user_id}")
         
-        # 3. Delete user's evaluations (after support requests and assessment purchases are deleted)
+        # 3. Delete grant data contributions linked to this user or their evaluations
+        # First, get IDs of this user's evaluations (needed for FK on evaluation_id)
+        user_eval_ids_subq = db.query(models.Evaluation.id).filter(
+            models.Evaluation.user_id == user_id
+        ).subquery()
+        
+        contributions_count = db.query(models.GrantDataContribution).filter(
+            (models.GrantDataContribution.user_id == user_id)
+            | (models.GrantDataContribution.evaluation_id.in_(user_eval_ids_subq))
+        ).count()
+        if contributions_count > 0:
+            db.query(models.GrantDataContribution).filter(
+                (models.GrantDataContribution.user_id == user_id)
+                | (models.GrantDataContribution.evaluation_id.in_(user_eval_ids_subq))
+            ).delete(synchronize_session=False)
+            db.flush()
+        logger.info(f"Deleted {contributions_count} grant data contributions for user {user_id}")
+        
+        # 4. Delete user's evaluations (after related contributions and purchases are deleted)
         evaluations_count = db.query(models.Evaluation).filter(
             models.Evaluation.user_id == user_id
         ).count()
@@ -92,7 +153,7 @@ async def delete_account(
             db.flush()
         logger.info(f"Deleted {evaluations_count} evaluations for user {user_id}")
         
-        # 4. Delete user's projects (after evaluations are deleted)
+        # 5. Delete user's projects (after evaluations are deleted)
         projects_count = db.query(models.Project).filter(
             models.Project.user_id == user_id
         ).count()
@@ -103,7 +164,7 @@ async def delete_account(
             db.flush()
         logger.info(f"Deleted {projects_count} projects for user {user_id}")
         
-        # 5. Delete user's payment records (only metadata, no card data stored)
+        # 6. Delete user's payment records (only metadata, no card data stored)
         payments_count = db.query(models.Payment).filter(
             models.Payment.user_id == user_id
         ).count()
@@ -114,7 +175,7 @@ async def delete_account(
             db.flush()
         logger.info(f"Deleted {payments_count} payment records for user {user_id}")
         
-        # 6. Anonymize audit logs (keep for security compliance, but remove user association - backend only)
+        # 7. Anonymize audit logs (keep for security compliance, but remove user association - backend only)
         audit_logs_count = db.query(models.AuditLog).filter(
             models.AuditLog.user_id == user_id
         ).count()
@@ -127,7 +188,7 @@ async def delete_account(
             db.flush()
         logger.info(f"Anonymized {audit_logs_count} audit logs for user {user_id}")
         
-        # 7. Remove user from grant approvals (set approved_by to NULL)
+        # 8. Remove user from grant approvals (set approved_by to NULL)
         grants_approved_count = db.query(models.Grant).filter(
             models.Grant.approved_by == user_id
         ).count()
@@ -140,7 +201,7 @@ async def delete_account(
             db.flush()
         logger.info(f"Removed user {user_id} from {grants_approved_count} grant approvals")
         
-        # 8. Remove user from grant normalization approvals
+        # 9. Remove user from grant normalization approvals
         normalizations_approved_count = db.query(models.GrantNormalization).filter(
             models.GrantNormalization.approved_by_user_id == user_id
         ).count()
@@ -153,7 +214,7 @@ async def delete_account(
             db.flush()
         logger.info(f"Removed user {user_id} from {normalizations_approved_count} grant normalization approvals")
         
-        # 9. Finally, delete the user account
+        # 10. Finally, delete the user account
         # Get fresh user object from database to ensure it's in the session
         user_to_delete = db.query(models.User).filter(models.User.id == user_id).first()
         if not user_to_delete:

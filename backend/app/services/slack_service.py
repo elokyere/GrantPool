@@ -387,8 +387,58 @@ def send_contribution_review_notification(
     message_text = f"*Grant Data Contribution #{contribution_id}*\n\n"
     message_text += f"*Grant:* {grant_name}\n"
     message_text += f"*Field:* {field_display}\n"
-    message_text += f"*Value:* {field_value[:200]}{'...' if len(field_value) > 200 else ''}\n"
-    message_text += f"*Submitted by:* {user_email}\n"
+    
+    # Format structured data for different field types
+    if field_name == 'past_recipients':
+        try:
+            import json
+            parsed = json.loads(field_value)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                message_text += f"*Recipients ({len(parsed)}):*\n"
+                for i, recipient in enumerate(parsed[:5], 1):  # Show first 5
+                    message_text += f"\n*Recipient {i}:*\n"
+                    if recipient.get('organization_name'):
+                        message_text += f"  • Organization: {recipient['organization_name']}\n"
+                    if recipient.get('organization_type'):
+                        message_text += f"  • Type: {recipient['organization_type']}\n"
+                    if recipient.get('country'):
+                        message_text += f"  • Country: {recipient['country']}\n"
+                    if recipient.get('career_stage'):
+                        message_text += f"  • Career Stage: {recipient['career_stage']}\n"
+                    if recipient.get('project_title'):
+                        message_text += f"  • Project: {recipient['project_title']}\n"
+                    if recipient.get('project_summary'):
+                        summary = recipient['project_summary'][:100]
+                        message_text += f"  • Summary: {summary}{'...' if len(recipient['project_summary']) > 100 else ''}\n"
+                    if recipient.get('project_theme'):
+                        themes = recipient['project_theme'] if isinstance(recipient['project_theme'], list) else [recipient['project_theme']]
+                        message_text += f"  • Themes: {', '.join(themes)}\n"
+                if len(parsed) > 5:
+                    message_text += f"\n... and {len(parsed) - 5} more recipient(s)\n"
+            else:
+                message_text += f"*Value:* {field_value[:200]}{'...' if len(field_value) > 200 else ''}\n"
+        except (json.JSONDecodeError, KeyError):
+            # Fallback to plain text if JSON parsing fails
+            message_text += f"*Value:* {field_value[:200]}{'...' if len(field_value) > 200 else ''}\n"
+    elif field_name in ['preferred_applicants', 'application_requirements']:
+        # Format list items
+        try:
+            import json
+            parsed = json.loads(field_value)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                message_text += f"*Items ({len(parsed)}):*\n"
+                for i, item in enumerate(parsed[:10], 1):  # Show first 10
+                    message_text += f"  {i}. {item}\n"
+                if len(parsed) > 10:
+                    message_text += f"  ... and {len(parsed) - 10} more item(s)\n"
+            else:
+                message_text += f"*Value:* {field_value[:200]}{'...' if len(field_value) > 200 else ''}\n"
+        except (json.JSONDecodeError, KeyError):
+            message_text += f"*Value:* {field_value[:200]}{'...' if len(field_value) > 200 else ''}\n"
+    else:
+        message_text += f"*Value:* {field_value[:200]}{'...' if len(field_value) > 200 else ''}\n"
+    
+    message_text += f"\n*Submitted by:* {user_email}\n"
     if source_url:
         message_text += f"*Source:* {source_url}\n"
     

@@ -1160,9 +1160,11 @@ Provide a deep, insightful explanation of why the alignment is {score}/10. Show 
         differences = []
         recipient_details = []  # Store actual recipient data for display
         
-        # Extract recipient details for display
+        # Extract recipient details for display (including project-level fields if available)
         for recipient in recipients:
             detail = {}
+            if recipient.get("organization_name"):
+                detail["organization_name"] = recipient.get("organization_name")
             if recipient.get("career_stage"):
                 detail["career_stage"] = recipient.get("career_stage")
             if recipient.get("organization_type"):
@@ -1173,6 +1175,13 @@ Provide a deep, insightful explanation of why the alignment is {score}/10. Show 
                 detail["education_level"] = recipient.get("education_level")
             if recipient.get("year"):
                 detail["year"] = recipient.get("year")
+            # Project-level fields (new)
+            if recipient.get("project_title"):
+                detail["project_title"] = recipient.get("project_title")
+            if recipient.get("project_summary"):
+                detail["project_summary"] = recipient.get("project_summary")
+            if recipient.get("project_theme"):
+                detail["project_theme"] = recipient.get("project_theme")
             if detail:
                 recipient_details.append(detail)
         
@@ -1594,58 +1603,52 @@ Provide a deep, insightful explanation of why the alignment is {score}/10. Show 
         )
     
     @staticmethod
-    def estimate_success_probability(grant: Dict[str, Any], mission_score: int, 
-                                   profile_score: Optional[int], competition: CompetitionResult) -> SuccessProbabilityResult:
+    def estimate_success_probability(
+        grant: Dict[str, Any],
+        mission_score: int,
+        profile_score: Optional[int],
+        competition: CompetitionResult,
+    ) -> SuccessProbabilityResult:
         """
-        Estimate Success Probability Range for paid assessments.
+        Provide a **grant-level base rate only**, derived from published competition data.
+
+        This is intentionally **not** a personalized prediction of the user's chance of
+        winning. It summarizes historical acceptance for all applicants where data exists.
         """
-        # Get base rate from competition stats
-        base_rate = None
+        # Get base rate from competition stats (historical, grant-level)
+        base_rate: Optional[float] = None
         if competition.acceptance_rate:
             try:
-                base_rate = float(competition.acceptance_rate.replace('~', '').replace('%', ''))
+                base_rate = float(competition.acceptance_rate.replace("~", "").replace("%", ""))
             except ValueError:
-                pass
+                base_rate = None
         
         if base_rate is None:
             return SuccessProbabilityResult(
                 range=None,
                 base_rate=None,
-                explanation="Cannot estimate success probability - no competition data available",
+                explanation="Cannot summarize historical acceptance — no competition data is available for this grant.",
                 confidence="unknown",
-                source=None
+                source=competition.source,
             )
         
-        # Adjust based on fit scores
-        adjusted_rate = base_rate
+        # Create a conservative band around the historical base rate.
+        # This band reflects normal year-to-year variance, NOT user-specific odds.
+        lower = max(int(base_rate * 0.8), 1)
+        upper = min(int(base_rate * 1.2), 60)  # cap for readability
         
-        # Mission alignment adjustment
-        if mission_score >= 8:
-            adjusted_rate *= 1.3
-        elif mission_score >= 6:
-            adjusted_rate *= 1.1
-        elif mission_score < 4:
-            adjusted_rate *= 0.7
-        
-        # Profile match adjustment
-        if profile_score:
-            if profile_score >= 8:
-                adjusted_rate *= 1.2
-            elif profile_score < 5:
-                adjusted_rate *= 0.8
-        
-        # Cap at reasonable maximum (50% base, so upper bound can be 60%)
-        adjusted_rate = min(adjusted_rate, 50)
-        
-        lower = max(int(adjusted_rate * 0.8), 1)
-        upper = min(int(adjusted_rate * 1.2), 60)  # Cap upper bound at 60%
+        explanation = (
+            f"Historical acceptance for this grant is around {int(base_rate)}% based on available "
+            f"competition data. The {lower}-{upper}% band reflects typical variation across cycles "
+            "and is a grant-level base rate, not a personalized chance of success."
+        )
         
         return SuccessProbabilityResult(
             range=f"{lower}-{upper}%",
             base_rate=f"{int(base_rate)}%",
-            explanation=f"Base rate: {int(base_rate)}% | Your fit profile adjusts this {'upward' if adjusted_rate > base_rate else 'downward'}",
+            explanation=explanation,
             confidence=competition.confidence,
-            source=competition.source
+            source=competition.source,
         )
     
     @staticmethod

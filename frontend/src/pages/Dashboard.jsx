@@ -165,6 +165,22 @@ function Dashboard() {
     select: (data) => Array.isArray(data) ? data : [], // Normalize data even from cache
   })
 
+  // Lightweight dashboard summary (counts) for faster initial load
+  const {
+    data: dashboardSummary,
+    isLoading: dashboardLoadingRaw,
+    isFetching: dashboardFetching,
+  } = useQuery({
+    queryKey: ['dashboardSummary'],
+    queryFn: async () => {
+      const response = await api.get('/api/v1/users/me/dashboard')
+      return response.data
+    },
+    staleTime: 15000, // reuse data for 15s
+    refetchOnWindowFocus: true,
+  })
+  const dashboardLoading = (dashboardLoadingRaw || dashboardFetching) && !dashboardSummary
+
   // Mutation to extract grant data from URL (for review/edit before evaluation)
   // This does NOT create a grant in the DB - only extracts data for user review
   const extractGrantMutation = useMutation({
@@ -891,7 +907,7 @@ function Dashboard() {
     )
   }
 
-  // Define spinner styles for loading indicators
+  // Define spinner and skeleton styles for loading indicators
   const spinnerStyles = `
     @keyframes spin {
       0% { transform: rotate(0deg); }
@@ -900,6 +916,18 @@ function Dashboard() {
     @keyframes pulse {
       0%, 100% { opacity: 0.4; transform: scale(1); }
       50% { opacity: 1; transform: scale(1.2); }
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .skeleton-pill {
+      margin-top: 0.25rem;
+      height: 1.8rem;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.2s ease-in-out infinite;
     }
   `
 
@@ -1541,23 +1569,53 @@ function Dashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
         <div className="card">
           <h3>Projects</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{projectsArray.length}</p>
+          {dashboardLoading ? (
+            <div className="skeleton-pill" />
+          ) : (
+            <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>
+              {dashboardSummary?.projects_count ?? projectsArray.length}
+            </p>
+          )}
         </div>
         <div className="card">
           <h3>Evaluations</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>{evaluationsArray.length}</p>
+          {dashboardLoading ? (
+            <div className="skeleton-pill" />
+          ) : (
+            <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>
+              {dashboardSummary?.evaluations_count ?? evaluationsArray.length}
+            </p>
+          )}
         </div>
         <div className="card">
           <h3>Apply</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#059669' }}>{applyCount}</p>
+          {dashboardLoading ? (
+            <div className="skeleton-pill" />
+          ) : (
+            <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#059669' }}>
+              {dashboardSummary?.apply_count ?? applyCount}
+            </p>
+          )}
         </div>
         <div className="card">
           <h3>Pass</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#dc2626' }}>{passCount}</p>
+          {dashboardLoading ? (
+            <div className="skeleton-pill" />
+          ) : (
+            <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#dc2626' }}>
+              {dashboardSummary?.pass_count ?? passCount}
+            </p>
+          )}
         </div>
         <div className="card">
           <h3>Conditional</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#d97706' }}>{conditionalCount}</p>
+          {dashboardLoading ? (
+            <div className="skeleton-pill" />
+          ) : (
+            <p style={{ fontSize: '2rem', fontWeight: 'bold', color: '#d97706' }}>
+              {dashboardSummary?.conditional_count ?? conditionalCount}
+            </p>
+          )}
         </div>
       </div>
 

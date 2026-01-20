@@ -341,15 +341,23 @@ Extract all available grant information and return as JSON."""
 
 Extract the following information if clearly available:
 
-1. PAST RECIPIENTS (if listed):
+1. PAST RECIPIENTS / FUNDED PROJECTS (if listed):
    - Extract individual recipient profiles with:
-     * career_stage (e.g., "Early-career", "Mid-career", "Senior")
-     * organization_type (e.g., "NGO", "University", "Government")
+     * organization_name (full name of the organization that received funding, e.g., "African Wildlife Foundation")
+     * organization_type (e.g., "NGO", "University", "Government", "Company", "Individual", "Community-based Organization")
      * country (ISO 2-letter code if possible, or country name)
+     * career_stage (e.g., "Early-career", "Mid-career", "Senior", "Established")
      * education_level (if mentioned)
      * year (award year if mentioned)
+     
+   - PROJECT-LEVEL DETAILS (if available):
+     * project_title (name/title of the funded project, e.g., "Geospatial Monitoring for Community Conservation")
+     * project_summary (1-2 sentence description of what the project does/addresses)
+     * project_theme (array of 2-5 high-level thematic tags, e.g., ["climate", "biodiversity", "geospatial", "community"])
+     
    - Tag each field with confidence: "high" (explicitly stated), "medium" (inferred from context), "low" (weak inference)
    - Source for all recipient data: "llm"
+   - IMPORTANT: Only extract project details from PUBLICLY LISTED information (funder websites, public reports). Never infer private application content.
 
 2. COMPETITION STATISTICS (if available):
    - applications_received (number)
@@ -365,25 +373,30 @@ IMPORTANT RULES:
 - If recipient data is insufficient (< 5 recipients), still extract but note low confidence
 - If competition stats are not explicitly stated, set source to "unknown" and confidence to "unknown"
 - Do NOT guess or invent data
+- For project details: Only extract if explicitly listed (e.g., "Funded Projects", "Past Recipients", "Awardees" sections)
 - If no recipient or competition data is available, return null for that section
 
 Return ONLY valid JSON in this format:
 {
   "recipients": [
     {
-      "career_stage": "string or null",
-      "career_stage_confidence": "high|medium|low",
-      "career_stage_source": "llm",
+      "organization_name": "string or null",
       "organization_type": "string or null",
       "organization_type_confidence": "high|medium|low",
       "organization_type_source": "llm",
       "country": "string or null",
       "country_confidence": "high|medium|low",
       "country_source": "llm",
+      "career_stage": "string or null",
+      "career_stage_confidence": "high|medium|low",
+      "career_stage_source": "llm",
       "education_level": "string or null",
       "education_level_confidence": "high|medium|low",
       "education_level_source": "llm",
       "year": integer or null,
+      "project_title": "string or null",
+      "project_summary": "string or null",
+      "project_theme": ["string"] or null,
       "locked": false
     }
   ] or null,
@@ -467,19 +480,24 @@ Extract recipient profiles and competition statistics if available. Return as JS
                         if isinstance(recipient, dict):
                             # Ensure all required fields exist with defaults
                             validated_recipient = {
-                                "career_stage": recipient.get("career_stage"),
-                                "career_stage_confidence": recipient.get("career_stage_confidence", "low"),
-                                "career_stage_source": recipient.get("career_stage_source", "llm"),
+                                "organization_name": recipient.get("organization_name"),
                                 "organization_type": recipient.get("organization_type"),
                                 "organization_type_confidence": recipient.get("organization_type_confidence", "low"),
                                 "organization_type_source": recipient.get("organization_type_source", "llm"),
                                 "country": recipient.get("country"),
                                 "country_confidence": recipient.get("country_confidence", "low"),
                                 "country_source": recipient.get("country_source", "llm"),
+                                "career_stage": recipient.get("career_stage"),
+                                "career_stage_confidence": recipient.get("career_stage_confidence", "low"),
+                                "career_stage_source": recipient.get("career_stage_source", "llm"),
                                 "education_level": recipient.get("education_level"),
                                 "education_level_confidence": recipient.get("education_level_confidence", "low"),
                                 "education_level_source": recipient.get("education_level_source", "llm"),
                                 "year": recipient.get("year"),
+                                # Project-level fields (new)
+                                "project_title": recipient.get("project_title"),
+                                "project_summary": recipient.get("project_summary"),
+                                "project_theme": recipient.get("project_theme") if isinstance(recipient.get("project_theme"), list) else None,
                                 "locked": False
                             }
                             validated_recipients.append(validated_recipient)

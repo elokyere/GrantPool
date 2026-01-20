@@ -67,6 +67,21 @@ function Grants() {
     return null
   }
 
+  // Shorten URL for display while keeping full URL in tooltip
+  const getDisplayUrl = (url) => {
+    if (!url) return ''
+    try {
+      const parsed = new URL(url)
+      const host = parsed.hostname.replace(/^www\./, '')
+      // For index view, keep it ultra compact: just the host.
+      // Full URL is still available on hover via the title attribute.
+      return host
+    } catch (e) {
+      // Fallback: simple character-based truncation
+      return url.length > 24 ? `${url.slice(0, 21)}…` : url
+    }
+  }
+
   // Get timeline info (canonical status if available, fallback to raw deadline)
   const getTimeline = (grant) => {
     // Use timeline_status from normalization if available
@@ -152,6 +167,41 @@ function Grants() {
     }
     
     return explanations[bucketName]?.[state] || `${bucketName}: ${state}`
+  }
+
+  // Derive a simple pattern confidence / evidence level from bucket states + status_of_knowledge
+  // This is a grant-level evidence indicator, not personalized fit.
+  const getPatternConfidence = (grant) => {
+    const winnerSignal = grant.winner_signal
+    const statusOfKnowledge = grant.status_of_knowledge
+
+    if (!winnerSignal && !statusOfKnowledge) {
+      return { label: 'Unknown evidence', color: '#6b7280' }
+    }
+
+    // High signal: clear buckets and well-specified knowledge
+    if (winnerSignal === 'known' && statusOfKnowledge === 'Well-Specified') {
+      return { label: 'Strong evidence', color: '#059669' }
+    }
+
+    // Mixed signal: some data, but partial/opaque in places
+    if (
+      winnerSignal === 'partial' ||
+      statusOfKnowledge === 'Partially Opaque'
+    ) {
+      return { label: 'Mixed evidence', color: '#d97706' }
+    }
+
+    // Low signal / structurally opaque grants
+    if (
+      winnerSignal === 'unknown' ||
+      statusOfKnowledge === 'Structurally Vague'
+    ) {
+      return { label: 'Low evidence (opaque)', color: '#b91c1c' }
+    }
+
+    // Fallback
+    return { label: 'Mixed evidence', color: '#6b7280' }
   }
 
   // Filter grants by keyword and readiness score
@@ -397,8 +447,18 @@ function Grants() {
                     <td style={{ padding: '0.75rem', fontFamily: 'monospace', fontSize: '0.8125rem' }}>{grant.id}</td>
                     <td style={{ padding: '0.75rem', fontWeight: '500' }}>{grant.name}</td>
                     <td style={{ padding: '0.75rem' }}>
-                      <a href={grant.source_url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', fontSize: '0.8125rem' }}>
-                        {grant.source_url}
+                      <a 
+                        href={grant.source_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        style={{ 
+                          color: '#2563eb', 
+                          fontSize: '0.8125rem',
+                          textDecoration: 'none'
+                        }}
+                        title={grant.source_url}
+                      >
+                        {getDisplayUrl(grant.source_url)}
                       </a>
                     </td>
                     <td style={{ padding: '0.75rem' }}>
@@ -506,6 +566,7 @@ function Grants() {
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '500', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase', width: '40px' }}></th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '500', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase' }}>Grant Name</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '500', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase' }}>Decision Readiness</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '500', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase' }}>Evidence Level</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '500', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase' }}>Indicators</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '500', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase' }}>Scope</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '500', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase' }}>Timeline</th>
@@ -518,6 +579,7 @@ function Grants() {
                   const timeline = getTimeline(grant)
                   const timelineBadge = getTimelineBadge(grant)
                   const isExpanded = expandedGrantId === grant.id
+                  const patternConfidence = getPatternConfidence(grant)
                   
                   // Get decision readiness label
                   const decisionReadiness = grant.decision_readiness || (grant.evaluation_complete === false ? 'Evaluating...' : null)
@@ -608,6 +670,22 @@ function Grants() {
                             <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Not evaluated</span>
                           )}
                         </td>
+                        <td style={{ padding: '0.75rem', fontSize: '0.8125rem' }}>
+                          <span
+                            title="How strong the historical evidence is in public data for this grant (not personalized fit)."
+                            style={{
+                              fontSize: '0.75rem',
+                              padding: '0.25rem 0.5rem',
+                              borderRadius: '4px',
+                              fontWeight: '500',
+                              backgroundColor: patternConfidence.color + '15',
+                              color: patternConfidence.color,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {patternConfidence.label}
+                          </span>
+                        </td>
                         <td style={{ padding: '0.75rem' }}>
                           <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                             {Object.entries(buckets).map(([bucketName, state]) => (
@@ -665,15 +743,11 @@ function Grants() {
                                 color: '#2563eb',
                                 textDecoration: 'none',
                                 fontSize: '0.8125rem',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                display: 'block',
-                                maxWidth: '200px',
                                 whiteSpace: 'nowrap'
                               }}
                               title={grant.source_url}
                             >
-                              {grant.source_url}
+                              {getDisplayUrl(grant.source_url)}
                             </a>
                           ) : (
                             <span style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.8125rem' }}>No URL</span>
@@ -769,8 +843,83 @@ function Grants() {
                                       </div>
                                     )}
 
-                                    {/* Past Recipients */}
-                                    {grant.recipient_patterns?.past_recipients && (
+                                    {/* Past Recipients / Funded Projects */}
+                                    {grant.recipient_patterns?.recipients && Array.isArray(grant.recipient_patterns.recipients) && grant.recipient_patterns.recipients.length > 0 && (
+                                      <div style={{ 
+                                        padding: '0.75rem',
+                                        backgroundColor: '#ffffff',
+                                        borderRadius: '4px',
+                                        border: '1px solid #e5e7eb',
+                                        fontSize: '0.8125rem'
+                                      }}>
+                                        <strong style={{ color: '#374151', display: 'block', marginBottom: '0.5rem' }}>Example Past Projects Funded ({grant.recipient_patterns.recipients.length}):</strong>
+                                        <div style={{ color: '#6b7280', lineHeight: '1.5' }}>
+                                          <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.75rem', fontStyle: 'italic' }}>
+                                            These examples are drawn from publicly listed past projects and help illustrate the kinds of work this grant has historically funded.
+                                          </div>
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                            {grant.recipient_patterns.recipients.slice(0, 3).map((recipient, idx) => {
+                                              const hasProjectData = recipient.project_title || recipient.project_summary;
+                                              return (
+                                                <div key={idx} style={{ 
+                                                  padding: '0.75rem', 
+                                                  backgroundColor: '#f9fafb', 
+                                                  borderRadius: '4px', 
+                                                  border: '1px solid #e5e7eb' 
+                                                }}>
+                                                  {recipient.organization_name && (
+                                                    <div style={{ fontWeight: '600', color: '#111827', marginBottom: '0.25rem' }}>
+                                                      {recipient.organization_name}
+                                                      {recipient.organization_type && (
+                                                        <span style={{ fontWeight: '400', color: '#6b7280', marginLeft: '0.5rem' }}>
+                                                          ({recipient.organization_type})
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                  {recipient.project_title && (
+                                                    <div style={{ fontWeight: '500', color: '#374151', marginBottom: '0.5rem', marginTop: hasProjectData ? '0.5rem' : '0' }}>
+                                                      {recipient.project_title}
+                                                    </div>
+                                                  )}
+                                                  {recipient.project_summary && (
+                                                    <div style={{ fontSize: '0.8125rem', color: '#6b7280', lineHeight: '1.5', marginBottom: '0.5rem' }}>
+                                                      {recipient.project_summary}
+                                                    </div>
+                                                  )}
+                                                  {recipient.project_theme && Array.isArray(recipient.project_theme) && recipient.project_theme.length > 0 && (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.5rem' }}>
+                                                      {recipient.project_theme.map((theme, themeIdx) => (
+                                                        <span key={themeIdx} style={{ 
+                                                          padding: '0.125rem 0.375rem', 
+                                                          backgroundColor: '#e5e7eb', 
+                                                          borderRadius: '3px', 
+                                                          fontSize: '0.7rem',
+                                                          color: '#374151'
+                                                        }}>
+                                                          {theme}
+                                                        </span>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                  <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.5rem' }}>
+                                                    {recipient.country && <span>{recipient.country}</span>}
+                                                    {recipient.year && <span>{recipient.country ? ' · ' : ''}{recipient.year}</span>}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                            {grant.recipient_patterns.recipients.length > 3 && (
+                                              <div style={{ fontSize: '0.75rem', color: '#9ca3af', fontStyle: 'italic', textAlign: 'center', padding: '0.5rem' }}>
+                                                + {grant.recipient_patterns.recipients.length - 3} more past project{grant.recipient_patterns.recipients.length - 3 > 1 ? 's' : ''}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {/* Legacy past_recipients text field (fallback for old data) */}
+                                    {grant.recipient_patterns?.past_recipients && !Array.isArray(grant.recipient_patterns.past_recipients) && (
                                       <div style={{ 
                                         padding: '0.75rem',
                                         backgroundColor: '#ffffff',

@@ -7,7 +7,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, HttpUrl, field_validator, model_validator
 from app.db.database import get_db
 from app.db import models
 from app.api.v1.auth import get_current_user
@@ -50,6 +50,46 @@ class ContributionCreate(BaseModel):
         if len(v) > 5000:
             raise ValueError("field_value must be less than 5000 characters")
         return v.strip()
+    
+    @model_validator(mode='after')
+    def validate_structured_fields(self):
+        """Validate JSON structure for fields that require structured data."""
+        if self.field_name == 'past_recipients':
+            try:
+                import json
+                parsed = json.loads(self.field_value)
+                if not isinstance(parsed, list):
+                    raise ValueError("past_recipients must be a JSON array of recipient objects")
+                if len(parsed) == 0:
+                    raise ValueError("past_recipients array cannot be empty")
+                # Validate each recipient object structure
+                for i, recipient in enumerate(parsed):
+                    if not isinstance(recipient, dict):
+                        raise ValueError(f"Recipient at index {i} must be an object")
+                    # At least one of these fields should be present
+                    required_fields = ['organization_name', 'organization_type', 'project_title']
+                    if not any(recipient.get(field) for field in required_fields):
+                        raise ValueError(
+                            f"Recipient at index {i} must have at least one of: "
+                            f"organization_name, organization_type, or project_title"
+                        )
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON format for past_recipients: {str(e)}")
+        elif self.field_name in ['preferred_applicants', 'application_requirements']:
+            try:
+                import json
+                parsed = json.loads(self.field_value)
+                if not isinstance(parsed, list):
+                    raise ValueError(f"{self.field_name} must be a JSON array of strings")
+                if len(parsed) == 0:
+                    raise ValueError(f"{self.field_name} array cannot be empty")
+                # Validate each item is a string
+                for i, item in enumerate(parsed):
+                    if not isinstance(item, str) or not item.strip():
+                        raise ValueError(f"Item at index {i} must be a non-empty string")
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON format for {self.field_name}: {str(e)}")
+        return self
 
 
 class ContributionResponse(BaseModel):

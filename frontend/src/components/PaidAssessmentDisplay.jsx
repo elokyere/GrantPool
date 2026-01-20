@@ -579,7 +579,7 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
       <div style={{ marginBottom: '1.5rem' }}>
         <h4 style={{ marginBottom: '1rem' }}>Mission Alignment Analysis</h4>
         <p style={{ fontSize: '0.9rem', color: '#6c757d', marginBottom: '1rem' }}>
-          This analysis compares your project's mission and goals with the grant's stated priorities to assess alignment and your chances of winning.
+          This analysis compares your project's mission and goals with the grant's stated priorities to assess how well you line up with what this grant historically funds.
         </p>
 
         {/* Project vs Grant Comparison - Enhanced with clear labels */}
@@ -642,7 +642,7 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
             boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'
           }}>
             <h5 style={{ color: '#059669', marginBottom: '0.75rem', fontWeight: '600' }}>
-              Where Your Project Aligns (Increases Your Chances)
+              Where Your Project Aligns (Strengthens Your Position)
             </h5>
             <div>
             {missionDetails.strong_matches.map((match, idx) => (
@@ -659,14 +659,14 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
             <div style={{ marginTop: '0.5rem' }}>
               <div style={{ fontWeight: '500', marginBottom: '0.25rem' }}>No alignment found due to:</div>
               {missionDetails.gaps.map((gap, idx) => (
-                <div key={idx} style={{ marginLeft: '1rem', marginTop: '0.25rem', wordWrap: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal' }}>• {gap}</div>
+                <div key={idx} style={{ marginLeft: '1rem', marginTop: '0.25rem', wordWrap: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal' }}>{gap}</div>
               ))}
             </div>
           ) : missionScore > 0 && missionScore < 4 && missionDetails.gaps && missionDetails.gaps.length > 0 ? (
             <div style={{ marginTop: '0.5rem' }}>
               <div style={{ fontWeight: '500', marginBottom: '0.5rem' }}>Weak alignment due to:</div>
               {missionDetails.gaps.map((gap, idx) => (
-                <div key={idx} style={{ marginLeft: '1rem', marginTop: '0.5rem', wordWrap: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.6' }}>• {gap}</div>
+                <div key={idx} style={{ marginLeft: '1rem', marginTop: '0.5rem', wordWrap: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.6' }}>{gap}</div>
               ))}
             </div>
           ) : missionScore >= 4 && missionDetails.strong_matches && missionDetails.strong_matches.length > 0 ? (
@@ -676,7 +676,7 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
             </div>
           ) : (
             <div style={{ marginTop: '0.5rem' }}>
-              {missionScore >= 7 ? 'Strong alignment suggests higher chances of success.' : missionScore >= 4 ? 'Moderate alignment - consider how to strengthen weak areas.' : 'Weak alignment may reduce your chances unless you can address the gaps.'}
+              {missionScore >= 7 ? 'Strong alignment suggests you are well-positioned for this grant.' : missionScore >= 4 ? 'Moderate alignment - consider how to strengthen weak areas.' : 'Weak alignment may reduce your competitiveness unless you can address the gaps.'}
             </div>
           )}
         </div>
@@ -700,20 +700,24 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
             <div style={{ fontSize: '0.85rem', color: '#6b7280', marginBottom: '0.75rem' }}>
               {profileDetails.recipient_count === 1 
                 ? "The following recipient data was found and analyzed (limited data - more recipients would improve assessment confidence):"
-                : "The following recipient data was collected and analyzed:"}
+                : "The following recipient data was collected and analyzed to understand historical recipient patterns:"}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '0.75rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '0.75rem' }}>
               {profileDetails.recipient_details.map((recipient, idx) => {
                 // Check if recipient has any data to display
-                const hasData = recipient.career_stage || recipient.organization_type || recipient.country || recipient.education_level || recipient.year;
+                const hasData = recipient.career_stage || recipient.organization_type || recipient.country || recipient.education_level || recipient.year || recipient.organization_name || recipient.project_title;
+                const hasProjectData = recipient.project_title || recipient.project_summary || recipient.project_theme;
                 return (
                   <div key={idx} style={{ padding: '0.75rem', backgroundColor: '#f9fafb', borderRadius: '4px', border: '1px solid #e5e7eb', fontSize: '0.85rem' }}>
                     <div style={{ fontWeight: '500', marginBottom: '0.5rem', color: '#374151' }}>Recipient {idx + 1}:</div>
-                    {recipient.career_stage && (
-                      <div style={{ marginBottom: '0.25rem' }}><strong>Career Stage:</strong> {recipient.career_stage}</div>
+                    {recipient.organization_name && (
+                      <div style={{ marginBottom: '0.25rem', fontWeight: '600', color: '#111827' }}><strong>Organization:</strong> {recipient.organization_name}</div>
                     )}
                     {recipient.organization_type && (
-                      <div style={{ marginBottom: '0.25rem' }}><strong>Organization:</strong> {recipient.organization_type}</div>
+                      <div style={{ marginBottom: '0.25rem' }}><strong>Type:</strong> {recipient.organization_type}</div>
+                    )}
+                    {recipient.career_stage && (
+                      <div style={{ marginBottom: '0.25rem' }}><strong>Career Stage:</strong> {recipient.career_stage}</div>
                     )}
                     {recipient.country && (
                       <div style={{ marginBottom: '0.25rem' }}><strong>Country:</strong> {recipient.country}</div>
@@ -722,7 +726,36 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
                       <div style={{ marginBottom: '0.25rem' }}><strong>Education:</strong> {recipient.education_level}</div>
                     )}
                     {recipient.year && (
-                      <div style={{ marginBottom: '0.25rem', color: '#6c757d' }}><strong>Year:</strong> {recipient.year}</div>
+                      <div style={{ marginBottom: '0.5rem', color: '#6c757d' }}><strong>Year:</strong> {recipient.year}</div>
+                    )}
+                    {hasProjectData && (
+                      <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #e5e7eb' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Funded Project</div>
+                        {recipient.project_title && (
+                          <div style={{ marginBottom: '0.5rem', fontWeight: '600', color: '#111827' }}>{recipient.project_title}</div>
+                        )}
+                        {recipient.project_summary && (
+                          <div style={{ marginBottom: '0.5rem', color: '#6b7280', lineHeight: '1.5', fontSize: '0.8125rem' }}>{recipient.project_summary}</div>
+                        )}
+                        {recipient.project_theme && Array.isArray(recipient.project_theme) && recipient.project_theme.length > 0 && (
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>Themes:</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                              {recipient.project_theme.map((theme, themeIdx) => (
+                                <span key={themeIdx} style={{ 
+                                  padding: '0.125rem 0.375rem', 
+                                  backgroundColor: '#e5e7eb', 
+                                  borderRadius: '3px', 
+                                  fontSize: '0.75rem',
+                                  color: '#374151'
+                                }}>
+                                  {theme}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {!hasData && (
                       <div style={{ marginBottom: '0.25rem', color: '#6c757d', fontStyle: 'italic' }}>Limited details available for this recipient</div>
@@ -773,13 +806,13 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
               <strong>Assessment Note:</strong> With only {profileDetails.recipient_count} recipient{profileDetails.recipient_count > 1 ? 's' : ''} found, we cannot provide a statistical pattern alignment score. {profileDetails.recipient_details && profileDetails.recipient_details.length > 0 ? 'However, you can review the recipient details shown above to manually assess how your profile compares. ' : ''}More recipient data would improve the accuracy and confidence of this assessment.
             </p>
             {profileDetails.recipient_details && profileDetails.recipient_details.length > 0 && (
-              <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#ffffff', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '0.85rem' }}>
-                <strong style={{ color: '#374151' }}>How to use this data:</strong>
+                <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#ffffff', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '0.85rem' }}>
+                <strong style={{ color: '#374151' }}>How to use this pattern data:</strong>
                 <ul style={{ marginTop: '0.5rem', marginBottom: 0, paddingLeft: '1.25rem', color: '#6b7280' }}>
-                  <li>Compare your career stage, organization type, and location with the recipient shown above</li>
-                  <li>Look for similarities that might indicate alignment with the grant's preferences</li>
-                  <li>Note any differences that you may need to address in your application</li>
-                  <li>Remember: one recipient doesn't represent all winners, but it provides valuable insight</li>
+                  <li>Compare your career stage, organization type, and location with the recipient shown above.</li>
+                  <li>Look for similarities that might indicate alignment with historical recipient patterns.</li>
+                  <li>Note any differences that you may need to thoughtfully address in your application.</li>
+                  <li>Remember: one recipient doesn't represent all winners, but it provides a useful directional signal.</li>
                 </ul>
               </div>
             )}
@@ -802,16 +835,16 @@ function PaidAssessmentDisplay({ evaluation, projectData, grantData }) {
         </div>
       )}
 
-      {/* Success Probability */}
+      {/* Historical Acceptance (Grant-Level) */}
       {successProb.range && successProb.range !== 'UNKNOWN' && (
         <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#ffffff', borderRadius: '4px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <strong style={{ color: '#374151' }}>Estimated Success Probability</strong>
+            <strong style={{ color: '#374151' }}>Historical Acceptance (Grant-Level)</strong>
             <span style={{ fontSize: '1.2rem', fontWeight: '600', color: '#111827' }}>{successProb.range}</span>
           </div>
           {successProb.base_rate && (
             <div style={{ fontSize: '0.85rem', color: '#6c757d' }}>
-              Base rate: {successProb.base_rate}
+              Base acceptance rate across all applicants: {successProb.base_rate}
               <ConfidenceBadge confidence={successProb.confidence} />
             </div>
           )}

@@ -1,0 +1,52 @@
+# Copy this file to terraform.tfvars and fill in your values
+# terraform.tfvars is in .gitignore and should not be committed
+
+# Digital Ocean API Token
+# Get from: https://cloud.digitalocean.com/account/api/tokens
+do_token = "your-digitalocean-api-token"
+
+# Project Configuration
+project_name = "grantpool"
+environment  = "production"
+region       = "nyc1"
+
+# Domain (optional - leave empty to use App Platform default domain)
+domain = ""
+
+# GitHub Integration (optional - for auto-deploy)
+github_repo   = "your-username/grantpool"
+github_branch = "main"
+auto_deploy   = false
+
+# Secrets
+secret_key        = "your-jwt-secret-key-change-this-in-production"
+anthropic_api_key = "your-anthropic-api-key"
+
+# Paystack Configuration
+# Get from: https://dashboard.paystack.com/#/settings/developer
+paystack_secret_key     = "sk_live_..."  # Use live keys for production
+paystack_public_key     = "pk_live_..."  # Use live keys for production
+paystack_webhook_secret  = "whsec_..."  # From webhook settings
+
+# Slack Configuration (optional - for admin orchestration)
+# Get from: https://api.slack.com/apps
+slack_signing_secret   = "your-slack-signing-secret"
+slack_workspace_id     = "T00000000"  # Your Slack workspace ID
+slack_admin_user_ids    = "U00000000,U11111111"  # Comma-separated admin user IDs
+slack_webhook_url       = "https://hooks.slack.com/services/..."  # Incoming webhook URL
+
+# SendGrid Configuration (for email service)
+# Get from: https://app.sendgrid.com/settings/api_keys
+sendgrid_api_key = "SG.your-sendgrid-api-key-here"  # SendGrid API key (starts with SG.)
+
+# Neon Database (create manually in Neon dashboard)
+neon_database_url = "postgresql://user:password@ep-xxx.neon.tech/grantpool?sslmode=require"
+neon_user         = "your_neon_user"
+neon_password     = "your_neon_password"
+neon_db_name      = "grantpool"
+
+# Application URL (for Paystack callback and Slack)
+app_url = ""  # Leave empty to auto-detect from domain (will be https://your-domain.com)
+
+# CORS (production domain - REQUIRED for security)
+cors_origins = "https://your-domain.com,https://www.your-domain.com"  # Replace with your actual domain

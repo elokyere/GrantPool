@@ -517,126 +517,71 @@ async def _handle_contribution_review(
         
         # Execute action
         if action == "approve":
-            contribution.status = "approved"
-            contribution.reviewed_at = datetime.now(timezone.utc)
-            contribution.admin_notes = f"Approved via Slack by {slack_user_id}"
-            # Note: reviewed_by requires User model lookup - simplified for now
-            # In production, map slack_user_id to User ID or store slack_user_id
-            logger.info(f"Setting contribution {contribution_id} status to 'approved'")
+            logger.info(f"Processing approval for contribution {contribution_id}")
             
-            # Merge contribution data into grant record if grant exists
+            # Try to merge contribution data into grant record if grant exists
+            merge_attempted = False
+            merge_succeeded = False
+            
             if contribution.grant_id:
                 grant = db.query(models.Grant).filter(
                     models.Grant.id == contribution.grant_id
                 ).first()
                 
                 if grant:
+                    # Use the ContributionMergeService for proper merge with validation and bucket recomputation
                     try:
-                        # Map contribution field_name to grant column
-                        field_mapping = {
-                            'award_amount': 'award_amount',
-                            'deadline': 'deadline',
-                            'decision_date': 'decision_date',
-                            'eligibility': 'eligibility',
-                            'preferred_applicants': 'preferred_applicants',
-                            'application_requirements': 'application_requirements',
-                            'award_structure': 'award_structure',
-                            'mission': 'mission',
-                            'description': 'description',
-                        }
+                        from app.services.contribution_merge_service import ContributionMergeService
                         
-                        # Handle special fields that go into JSONB
-                        if contribution.field_name in ['past_recipients', 'acceptance_rate']:
-                            # Update recipient_patterns JSONB field
-                            recipient_patterns = grant.recipient_patterns or {}
-                            
-                            if contribution.field_name == 'past_recipients':
-                                recipient_patterns['past_recipients'] = contribution.field_value
-                                recipient_patterns['past_recipients_source'] = 'user_contribution'
-                            elif contribution.field_name == 'acceptance_rate':
-                                recipient_patterns['acceptance_rate'] = contribution.field_value
-                                recipient_patterns['acceptance_rate_source'] = 'user_contribution'
-                            
-                            grant.recipient_patterns = recipient_patterns
-                            logger.info(f"Updated recipient_patterns for grant {grant.id} with {contribution.field_name}")
-                        elif contribution.field_name in field_mapping:
-                            # Update direct grant field
-                            grant_field = field_mapping[contribution.field_name]
-                            
-                            # Handle JSON fields (application_requirements)
-                            if grant_field == 'application_requirements':
-                                try:
-                                    # Try to parse as JSON, otherwise store as string in list
-                                    parsed_value = json.loads(contribution.field_value)
-                                    if isinstance(parsed_value, list):
-                                        grant.application_requirements = parsed_value
-                                    else:
-                                        grant.application_requirements = [contribution.field_value]
-                                except (json.JSONDecodeError, ValueError):
-                                    # If not valid JSON, store as single-item list
-                                    grant.application_requirements = [contribution.field_value]
-                            else:
-                                # Direct field assignment
-                                setattr(grant, grant_field, contribution.field_value)
-                            
-                            logger.info(f"Merged contribution {contribution_id} into grant {grant.id}, field: {grant_field}")
+                        merge_attempted = True
+                        success, error_msg = ContributionMergeService.merge_contribution_into_grant(
+                            contribution=contribution,
+                            grant=grant,
+                            admin_user_id=None,  # TODO: Map slack_user_id to User ID if needed
+                            admin_notes=f"Approved and merged via Slack by {slack_user_id}",
+                            db=db
+                        )
+                        
+                        if success:
+                            merge_succeeded = True
+                            logger.info(f"✅ Successfully merged contribution {contribution_id} into grant {grant.id}")
                         else:
-                            logger.warning(f"Contribution field '{contribution.field_name}' not mapped to grant field - skipping merge")
-                        
-                        # Mark contribution as merged after successful merge
-                        contribution.status = 'merged'
-                        contribution.admin_notes = f"Approved and merged via Slack by {slack_user_id}"
-                        
-                        # Recompute decision readiness after merge (non-blocking)
-                        try:
-                            from app.services.decision_readiness_service import DecisionReadinessService
-                            readiness_service = DecisionReadinessService()
+                            # Merge failed - mark as approved but not merged
+                            logger.error(f"Failed to merge contribution {contribution_id} into grant {grant.id}: {error_msg}")
+                            contribution.status = 'approved'  # Approved but not merged
+                            contribution.admin_notes = f"Approved via Slack by {slack_user_id} (merge failed: {error_msg})"
+                            contribution.reviewed_by = None  # TODO: Map slack_user_id
+                            contribution.reviewed_at = datetime.now(timezone.utc)
+                            db.commit()
                             
-                            # Prepare grant dict for readiness computation
-                            grant_dict = {
-                                'name': grant.name,
-                                'description': grant.description,
-                                'mission': grant.mission,
-                                'deadline': grant.deadline,
-                                'decision_date': grant.deadline,
-                                'award_amount': grant.award_amount,
-                                'eligibility': grant.eligibility,
-                                'preferred_applicants': grant.preferred_applicants,
-                                'application_requirements': grant.application_requirements,
-                                'award_structure': grant.award_structure,
-                                'recipient_patterns': grant.recipient_patterns,
-                            }
-                            
-                            # Recompute buckets
-                            timeline_state, _ = readiness_service.assess_timeline_clarity(grant_dict)
-                            winner_state, _ = readiness_service.assess_winner_signal(grant_dict)
-                            mission_state, _ = readiness_service.assess_mission_specificity(grant_dict)
-                            application_state, _ = readiness_service.assess_application_burden(grant_dict)
-                            award_state, _ = readiness_service.assess_award_structure_clarity(grant_dict)
-                            
-                            grant.timeline_clarity = timeline_state
-                            grant.winner_signal = winner_state
-                            grant.mission_specificity = mission_state
-                            grant.application_burden = application_state
-                            grant.award_structure_clarity = award_state
-                            
-                            # Recompute decision readiness
-                            grant.decision_readiness = readiness_service.compute_decision_readiness(grant_dict)
-                            
-                            logger.info(f"Recomputed decision readiness for grant {grant.id} after contribution merge")
-                        except Exception as readiness_error:
-                            # Log but don't fail - readiness computation is non-critical
-                            logger.warning(f"Failed to recompute decision readiness after merge: {readiness_error}", exc_info=True)
-                        
                     except Exception as merge_error:
                         # Log merge error but don't fail approval - contribution is still approved
-                        logger.error(f"Failed to merge contribution {contribution_id} into grant {grant.id}: {merge_error}", exc_info=True)
-                        # Keep status as 'approved' (not 'merged') if merge failed
-                        contribution.admin_notes = f"Approved via Slack by {slack_user_id} (merge failed: {str(merge_error)})"
+                        logger.error(f"Exception during merge of contribution {contribution_id} into grant {grant.id}: {merge_error}", exc_info=True)
+                        merge_attempted = True
+                        contribution.status = 'approved'
+                        contribution.admin_notes = f"Approved via Slack by {slack_user_id} (merge exception: {str(merge_error)})"
+                        contribution.reviewed_by = None  # TODO: Map slack_user_id
+                        contribution.reviewed_at = datetime.now(timezone.utc)
+                        db.commit()
                 else:
                     logger.warning(f"Grant {contribution.grant_id} not found - cannot merge contribution {contribution_id}")
+                    # Mark as approved but not merged (grant doesn't exist)
+                    contribution.status = 'approved'
+                    contribution.admin_notes = f"Approved via Slack by {slack_user_id} (grant not found - cannot merge)"
+                    contribution.reviewed_by = None  # TODO: Map slack_user_id
+                    contribution.reviewed_at = datetime.now(timezone.utc)
+                    db.commit()
             else:
                 logger.info(f"Contribution {contribution_id} has no grant_id - skipping merge (in-memory grant)")
+                # Mark as approved but not merged (no grant to merge into)
+                contribution.status = 'approved'
+                contribution.admin_notes = f"Approved via Slack by {slack_user_id} (no grant_id - in-memory grant)"
+                contribution.reviewed_by = None  # TODO: Map slack_user_id
+                contribution.reviewed_at = datetime.now(timezone.utc)
+                db.commit()
+            
+            # If merge succeeded, contribution.status is already 'merged' and committed by service
+            # If merge failed or wasn't attempted, status is 'approved' and already committed above
             
         elif action == "reject":
             contribution.status = "rejected"
@@ -660,13 +605,13 @@ async def _handle_contribution_review(
             f"at {datetime.now(timezone.utc)}"
         )
         
-        # Commit
+        # Refresh contribution to get latest status (may have been committed by merge service)
         try:
-            db.commit()
             db.refresh(contribution)
-            
-            # Verify the commit worked
-            logger.info(f"Database commit successful. Refreshed contribution status: {contribution.status}")
+            logger.info(f"Refreshed contribution status: {contribution.status}")
+        except Exception as refresh_error:
+            # If already committed/refreshed, this is fine
+            logger.debug(f"Could not refresh contribution (may already be committed): {refresh_error}")
             
             # Send email notification to user
             try:
