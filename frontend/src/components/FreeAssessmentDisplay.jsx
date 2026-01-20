@@ -21,6 +21,7 @@ function FreeAssessmentDisplay({ evaluation, grantData }) {
   // Extract grant data - prefer grant_snapshot_json (in-memory grants), fallback to grantData prop (indexed grants)
   const grantSnapshot = evaluation.grant_snapshot_json || grantData || {}
   const awardAmount = grantSnapshot.award_amount || null
+  const awardStructureText = grantSnapshot.award_structure || null
   const deadline = grantSnapshot.deadline || null
   const decisionDate = grantSnapshot.decision_date || null
   const eligibility = grantSnapshot.eligibility || grantData?.eligibility || null
@@ -32,7 +33,15 @@ function FreeAssessmentDisplay({ evaluation, grantData }) {
   const clarityRating = grantQuality.clarity_rating || 'Unknown'
   const accessBarrier = grantQuality.access_barrier || 'UNKNOWN'
   const accessHours = grantQuality.access_barrier_hours || 'N/A'
-  const timelineStatus = grantQuality.timeline_status || 'UNKNOWN'
+  // Timeline status from backend; fall back to a softer label when we at least know the date
+  let timelineStatus = grantQuality.timeline_status || 'UNKNOWN'
+  if (timelineStatus === 'UNKNOWN') {
+    if (deadline) {
+      timelineStatus = 'DATE ONLY'
+    } else if (grantQuality.timeline_weeks) {
+      timelineStatus = 'ESTIMATE ONLY'
+    }
+  }
   const timelineWeeks = grantQuality.timeline_weeks || null
   const awardScore = grantQuality.award_structure_score ?? evaluation.award_structure
   const awardTransparency = grantQuality.award_structure_transparency || 'Unclear'
@@ -414,7 +423,19 @@ function FreeAssessmentDisplay({ evaluation, grantData }) {
               <strong>Award Structure</strong>
               <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{awardScore}/10</span>
             </div>
-            <div style={{ fontSize: '0.85rem', color: '#6c757d' }}>{awardTransparency}</div>
+            <div style={{ fontSize: '0.85rem', color: '#6c757d', marginBottom: awardAmount || awardStructureText ? '0.25rem' : 0 }}>
+              {awardTransparency}
+            </div>
+            {(awardAmount || awardStructureText) && (
+              <div style={{ fontSize: '0.8rem', color: '#495057' }}>
+                {awardAmount && (
+                  <div><strong>Amount:</strong> {awardAmount}</div>
+                )}
+                {awardStructureText && (
+                  <div><strong>How it pays out:</strong> {awardStructureText}</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -476,11 +497,11 @@ function FreeAssessmentDisplay({ evaluation, grantData }) {
       {evaluation.red_flags && evaluation.red_flags.length > 0 && (
         <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f8d7da', borderRadius: '4px' }}>
           <h5 style={{ color: '#721c24', marginBottom: '0.5rem' }}>Red Flags</h5>
-          <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+          <div>
             {evaluation.red_flags.map((flag, idx) => (
-              <li key={idx} style={{ color: '#721c24', marginBottom: '0.25rem' }}>{flag}</li>
+              <p key={idx} style={{ color: '#721c24', marginBottom: '0.5rem', marginTop: 0, lineHeight: '1.5' }}>{flag}</p>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 

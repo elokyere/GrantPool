@@ -710,17 +710,35 @@ Provide a deep, insightful explanation of why the alignment is {score}/10. Show 
                 source=None
             )
         
-        # Try to parse deadline (simplified - may need more robust parsing)
-        # This is a basic implementation - you may want to enhance date parsing
+        # Try to parse deadline (enhanced date parsing).
+        # Goal: turn "today → deadline" into concrete weeks remaining wherever possible.
         try:
-            # Try common date formats
+            raw = deadline_str.strip()
+            # Remove ordinal suffixes like "15th" -> "15"
+            raw = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', raw, flags=re.IGNORECASE)
+            
+            # If no year is present, assume current year; if date already passed, roll to next year.
+            if not re.search(r'\d{4}', raw):
+                tentative = f"{raw}, {current_date.year}"
+            else:
+                tentative = raw
+            
             deadline = None
             for fmt in ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y"]:
                 try:
-                    deadline = datetime.strptime(deadline_str.strip(), fmt).date()
+                    deadline = datetime.strptime(tentative, fmt).date()
                     break
                 except ValueError:
                     continue
+            
+            # If we added a year and the date is still in the past, roll forward one year
+            if deadline and deadline < current_date and not re.search(r'\d{4}', raw):
+                try:
+                    rolled = deadline.replace(year=deadline.year + 1)
+                    deadline = rolled
+                except ValueError:
+                    # In case of leap-year edge cases, leave as-is
+                    pass
             
             if deadline is None:
                 return TimelineResult(
