@@ -236,11 +236,21 @@ function Evaluations() {
           />
         )}
 
-        {assessmentType === 'free' ? (
-          <FreeAssessmentDisplay evaluation={evaluation} />
-        ) : assessmentType === 'paid' ? (
-          <PaidAssessmentDisplay evaluation={evaluation} />
-        ) : (
+        {(() => {
+          const evalProjectData = evaluation.project_id && projects 
+            ? projects.find(p => p && p.id === evaluation.project_id)
+            : null
+          const evalGrantData = evaluation.grant_id && grants
+            ? grants.find(g => g && g.id === evaluation.grant_id)
+            : null
+          
+          return assessmentType === 'free' ? (
+            <FreeAssessmentDisplay evaluation={evaluation} grantData={evalGrantData} projectData={evalProjectData} />
+          ) : assessmentType === 'paid' ? (
+            <PaidAssessmentDisplay evaluation={evaluation} projectData={evalProjectData} grantData={evalGrantData} />
+          ) : null
+        })()}
+        {!assessmentType && (
           // Legacy evaluation - show basic display
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
@@ -510,11 +520,21 @@ function Evaluations() {
             
             return (
               <div key={evaluation.id}>
-                {assessmentType === 'free' ? (
-                  <FreeAssessmentDisplay evaluation={evaluation} />
-                ) : assessmentType === 'paid' ? (
-                  <PaidAssessmentDisplay evaluation={evaluation} />
-                ) : (
+                {(() => {
+                  const evalProjectData = evaluation.project_id && projects 
+                    ? projects.find(p => p && p.id === evaluation.project_id)
+                    : null
+                  const evalGrantData = evaluation.grant_id && grants
+                    ? grants.find(g => g && g.id === evaluation.grant_id)
+                    : null
+                  
+                  return assessmentType === 'free' ? (
+                    <FreeAssessmentDisplay evaluation={evaluation} grantData={evalGrantData} projectData={evalProjectData} />
+                  ) : assessmentType === 'paid' ? (
+                    <PaidAssessmentDisplay evaluation={evaluation} projectData={evalProjectData} grantData={evalGrantData} />
+                  ) : null
+                })()}
+                {!assessmentType && (
                   // Legacy evaluation - show basic card
                   <div className="card">
                     <LegacyEvaluationBadge 

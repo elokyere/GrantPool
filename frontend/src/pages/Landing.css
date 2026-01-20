@@ -847,9 +847,11 @@
 
 .assessment-feature {
   display: flex;
-  align-items: center;
-  font-size: 0.95rem;
+  align-items: flex-start;
+  font-size: 0.9rem;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  gap: 0.5rem;
 }
 
 .assessment-column-free .assessment-feature {

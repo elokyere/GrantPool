@@ -255,9 +255,24 @@ class LLMGrantEvaluator:
         # Format grant information
         grant_text = format_grant_info(grant)
         
-        # Free tier: NO project data - assess grant quality only
+        # Free tier: Check if project data is available (user provided it voluntarily)
         if assessment_type == "free":
-            user_text = """
+            has_project_data = user is not None and (
+                (user.project_description and user.project_description.strip() != "") or
+                (user.project_stage and user.project_stage.strip() != "")
+            )
+            
+            if has_project_data:
+                # Enhanced free assessment with project data
+                user_text = format_user_context(user) + """
+
+NOTE: This is a FREE TIER assessment, but the user has voluntarily provided project data.
+Use this project data to provide a comprehensive assessment including fit/match analysis.
+This demonstrates the value of paid assessments while still being a free assessment.
+"""
+            else:
+                # Standard free assessment - grant quality only
+                user_text = """
 NOTE: This is a FREE TIER assessment. You are assessing GRANT QUALITY ONLY.
 Do NOT consider any specific applicant's fit. You do not have project data.
 
@@ -300,7 +315,48 @@ Always tag data with source and confidence.
         
         # Add tier-specific instructions
         if assessment_type == "free":
-            tier_instructions = """
+            # Check if project data is available (user provided it voluntarily)
+            has_project_data = user is not None and (
+                (user.project_description and user.project_description.strip() != "") or
+                (user.project_stage and user.project_stage.strip() != "")
+            )
+            
+            if has_project_data:
+                tier_instructions = """
+CRITICAL: This is a FREE TIER assessment WITH PROJECT DATA provided by the user.
+
+1. ASSESSMENT SCOPE:
+   - Assess BOTH grant quality characteristics AND personalized fit/match
+   - User has voluntarily provided project data - use it to provide comprehensive assessment
+   - Focus on: clarity, access barriers, timeline, award structure, competition, AND fit/match
+
+2. RECOMMENDATION:
+   - You CAN return "APPLY", "CONDITIONAL", or "PASS" based on fit assessment
+   - Use project data to assess mission alignment and winner pattern match
+   - This is an enhanced free assessment showing what paid assessments provide
+
+3. SCORING APPROACH:
+   - timeline_viability: Assess timeline fit with project constraints
+   - winner_pattern_match: Assess fit based on project data provided
+   - mission_alignment: Assess alignment between grant mission and project
+   - application_burden: Assess access barrier (inverted: low barrier = high score)
+   - award_structure: Assess award structure transparency
+
+4. OUTPUT REQUIREMENTS:
+   - Provide personalized "good_fit_if" and "poor_fit_if" based on project data
+   - Include actionable_next_step with personalized recommendations
+   - Note: "This is a free assessment. A paid assessment would provide even more detailed analysis."
+   - Tag all assessments with confidence levels
+
+5. CONFIDENCE & SOURCE TAGGING:
+   - Always indicate confidence (high, medium, low, unknown)
+   - Always indicate source when applicable (official, estimated, llm-extracted)
+   - If data is missing, return "UNKNOWN" not a guess
+
+REMEMBER: This is an enhanced free assessment using voluntarily provided project data.
+"""
+            else:
+                tier_instructions = """
 CRITICAL: This is a FREE TIER assessment. You MUST follow these rules:
 
 1. ASSESSMENT SCOPE:
@@ -310,7 +366,7 @@ CRITICAL: This is a FREE TIER assessment. You MUST follow these rules:
 
 2. RECOMMENDATION RESTRICTION:
    - You can ONLY return "CONDITIONAL" or "PASS"
-   - NEVER return "APPLY" for free assessments
+   - NEVER return "APPLY" for free assessments without project data
    - Free assessments show grant quality, not personalized fit
 
 3. SCORING APPROACH:

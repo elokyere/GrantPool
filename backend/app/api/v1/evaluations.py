@@ -379,11 +379,24 @@ async def evaluate_grant(
     elif grant_snapshot and "recipient_patterns" in grant_snapshot:
         grant_dict["recipient_patterns"] = grant_snapshot.get("recipient_patterns")
     
-    # Prepare project data dict for scoring service (paid tier only)
+    # Prepare project data dict for scoring service
+    # Use project data if provided (even for free assessments) to make free assessments more comprehensive
     project_dict = None
     user_context = None
     
-    if assessment_type == "paid":
+    # Check if project has meaningful data (not just default/placeholder values)
+    has_meaningful_project_data = (
+        project and 
+        project.name and 
+        project.name != "Default Project" and
+        project.description and 
+        project.description.strip() != "" and
+        project.description != "Not specified" and
+        project.stage and 
+        project.stage != "Not specified"
+    )
+    
+    if assessment_type == "paid" or has_meaningful_project_data:
         # Backfill funding_need_amount/currency if missing but funding_need string exists
         funding_need_amount = project.funding_need_amount
         funding_need_currency = project.funding_need_currency
@@ -400,18 +413,20 @@ async def evaluate_grant(
                 funding_need_amount = parsed_amount
                 funding_need_currency = parsed_currency
         
-        # Paid tier: Need project data for fit assessment
+        # Use project data for fit assessment (paid) or enhanced free assessment (if project data provided)
         # CRITICAL: Log project details to ensure correct project is used
         import logging
         logger = logging.getLogger(__name__)
         logger.info("=" * 60)
         logger.info(f"EVALUATION PROJECT VALIDATION")
+        logger.info(f"  Assessment Type: {assessment_type}")
         logger.info(f"  Project ID: {project.id}")
         logger.info(f"  Project Name: {project.name}")
         logger.info(f"  Project Description (first 100 chars): {project.description[:100] if project.description else 'None'}...")
         logger.info(f"  User ID: {current_user.id}")
         logger.info(f"  Grant ID: {grant_id}")
         logger.info(f"  Grant Name: {grant_name}")
+        logger.info(f"  Has Meaningful Project Data: {has_meaningful_project_data}")
         logger.info("=" * 60)
         
         # Validate project belongs to user (double-check)
@@ -447,8 +462,12 @@ async def evaluate_grant(
         
         # Log project data being sent to evaluator
         logger.info(f"Project data being sent to evaluator: name='{project.name}', description_length={len(project.description) if project.description else 0}")
+        
+        # For free assessments with project data, log that we're providing enhanced assessment
+        if assessment_type == "free" and has_meaningful_project_data:
+            logger.info("ENHANCED FREE ASSESSMENT: Using project data to provide more comprehensive free assessment")
     else:
-        # Free tier: No project data needed
+        # Free tier: No meaningful project data available
         user_context = None
     
     # Run evaluation with new framework
@@ -534,8 +553,16 @@ async def evaluate_grant(
         # Invert access barrier for application_burden (low barrier = high score)
         result.scores.application_burden = 10 - access_barrier_score
         result.scores.award_structure = award_result.score
-        result.scores.winner_pattern_match = None  # NULL for free tier (no project data)
-        result.scores.mission_alignment = None  # NULL for free tier (no project data)
+        
+        # For free assessments with project data, calculate mission alignment as preview
+        if has_meaningful_project_data and project_dict:
+            mission_result = scoring_service.calculate_mission_alignment(grant_dict, project_dict)
+            result.scores.mission_alignment = mission_result.score
+            logger.info(f"Free assessment with project data: Calculated mission alignment = {mission_result.score}/10")
+        else:
+            result.scores.mission_alignment = None  # NULL for free tier without project data
+        
+        result.scores.winner_pattern_match = None  # NULL for free tier (no profile match)
         result.composite_score = free_composite
         
         # Ensure recommendation is not APPLY

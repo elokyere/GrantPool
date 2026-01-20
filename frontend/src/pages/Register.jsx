@@ -20,6 +20,8 @@ function Register() {
     }
   }, [user, navigate])
 
+  const [showVerificationMessage, setShowVerificationMessage] = useState(false)
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -29,15 +31,39 @@ function Register() {
       // Register user
       await register(email, password, fullName)
       
-      // Login user - this will set the token and fetch user
-      await login(email, password)
-      
-      // Navigation will happen automatically via useEffect when user state updates
+      // Show verification message instead of auto-login
+      setShowVerificationMessage(true)
+      setLoading(false)
     } catch (err) {
       console.error('Registration error:', err)
       setError(err.response?.data?.detail || err.message || 'Registration failed. Please try again.')
       setLoading(false)
     }
+  }
+
+  if (showVerificationMessage) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="card" style={{ maxWidth: '500px', width: '100%', textAlign: 'center' }}>
+          <h2>Check Your Email</h2>
+          <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>
+            We've sent a verification email to <strong>{email}</strong>
+          </p>
+          <p style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '1.5rem' }}>
+            Please click the verification link in the email to activate your account. 
+            The link will expire in 24 hours.
+          </p>
+          <div style={{ marginTop: '1.5rem' }}>
+            <Link to="/resend-verification" className="btn btn-secondary" style={{ marginRight: '0.5rem' }}>
+              Resend Email
+            </Link>
+            <Link to="/login" className="btn btn-primary">
+              Go to Login
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

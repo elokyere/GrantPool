@@ -223,6 +223,74 @@ class EmailService:
             return False
 
 
+def send_email_verification_email(email: str, verification_token: str, verification_url: Optional[str] = None) -> bool:
+    """
+    Send email verification email.
+    
+    Args:
+        email: User's email address
+        verification_token: Email verification token
+        verification_url: Optional full verification URL (if not provided, will use APP_URL)
+        
+    Returns:
+        True if email sent successfully, False otherwise
+    """
+    # Use FRONTEND_URL for email links (user clicks link in browser)
+    frontend_url = getattr(settings, 'FRONTEND_URL', getattr(settings, 'APP_URL', 'http://localhost:3000'))
+    if not verification_url:
+        verification_url = f"{frontend_url}/verify-email?token={verification_token}&email={email}"
+    
+    subject = "Verify Your GrantPool Email Address"
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .button {{ display: inline-block; padding: 12px 24px; background-color: #667eea; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; }}
+            .footer {{ margin-top: 30px; font-size: 12px; color: #666; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Verify Your Email Address</h2>
+            <p>Thank you for signing up for GrantPool!</p>
+            <p>Please verify your email address by clicking the button below:</p>
+            <a href="{verification_url}" class="button">Verify Email Address</a>
+            <p>Or copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #667eea;">{verification_url}</p>
+            <p><strong>This link will expire in 24 hours.</strong></p>
+            <p>If you didn't create a GrantPool account, please ignore this email.</p>
+            <div class="footer">
+                <p>GrantPool - Decisive grant triage system</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    text_content = f"""
+    Verify Your Email Address
+    
+    Thank you for signing up for GrantPool!
+    
+    Please verify your email address by clicking the link below:
+    {verification_url}
+    
+    This link will expire in 24 hours.
+    
+    If you didn't create a GrantPool account, please ignore this email.
+    
+    GrantPool - Decisive grant triage system
+    """
+    
+    email_service = EmailService()
+    return email_service.send_email(email, subject, html_content, text_content)
+
+
 def send_password_reset_email(email: str, reset_token: str, reset_url: Optional[str] = None) -> bool:
     """
     Send password reset email.
@@ -235,9 +303,10 @@ def send_password_reset_email(email: str, reset_token: str, reset_url: Optional[
     Returns:
         True if email sent successfully, False otherwise
     """
-    app_url = getattr(settings, 'APP_URL', 'http://localhost:3000')
+    # Use FRONTEND_URL for email links (user clicks link in browser)
+    frontend_url = getattr(settings, 'FRONTEND_URL', getattr(settings, 'APP_URL', 'http://localhost:3000'))
     if not reset_url:
-        reset_url = f"{app_url}/forgot-password?token={reset_token}&email={email}"
+        reset_url = f"{frontend_url}/forgot-password?token={reset_token}&email={email}"
     
     subject = "Reset Your GrantPool Password"
     

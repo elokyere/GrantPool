@@ -21,6 +21,7 @@ from app.core.config import settings
 router = APIRouter()
 # OAuth2PasswordBearer tokenUrl must match the actual route path
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+logger = logging.getLogger(__name__)
 
 
 # Pydantic models
@@ -36,6 +37,7 @@ class UserResponse(BaseModel):
     email: str
     full_name: str | None
     is_active: bool
+    email_verified: bool | None = None
     
     class Config:
         from_attributes = True
@@ -104,17 +106,37 @@ async def register(
             detail="Email already registered"
         )
     
-    # Create new user
+    # Generate email verification token
+    verification_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)  # Token expires in 24 hours
+    
+    # Create new user (email not verified by default)
     hashed_password = get_password_hash(user_data.password)
     db_user = models.User(
         email=user_data.email,
         hashed_password=hashed_password,
         full_name=user_data.full_name,
         country_code=user_data.country_code,
+        email_verified=False,
+        email_verification_token=verification_token,
+        email_verification_expires=expires_at,
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+    
+    # Send verification email
+    from app.services.email_service import send_email_verification_email
+    email_sent = send_email_verification_email(user_data.email, verification_token)
+    
+    # Log email sending status
+    if email_sent:
+        logger.info(f"Verification email sent successfully to {user_data.email}")
+    else:
+        logger.error(
+            f"Verification email FAILED to send to {user_data.email}. "
+            f"Check SendGrid configuration and logs for details."
+        )
     
     return db_user
 
@@ -189,7 +211,6 @@ async def forgot_password(
     # Send password reset email
     from app.services.email_service import send_password_reset_email
     
-    logger = logging.getLogger(__name__)
     email_sent = send_password_reset_email(user.email, reset_token)
     
     # Log email sending status (even in production for debugging)
@@ -258,4 +279,96 @@ async def reset_password(
     db.commit()
     
     return {"message": "Password reset successfully"}
+
+
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    token: str
+
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+@limiter.limit("10/hour")
+async def verify_email(
+    request: Request,
+    verify_data: VerifyEmailRequest,
+    db: Session = Depends(get_db)
+):
+    """Verify user email address using verification token."""
+    user = db.query(models.User).filter(models.User.email == verify_data.email).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Check if already verified
+    if user.email_verified:
+        return {"message": "Email already verified"}
+    
+    # Check if token exists and matches
+    if not user.email_verification_token or user.email_verification_token != verify_data.token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification token"
+        )
+    
+    # Check if token has expired
+    if user.email_verification_expires and user.email_verification_expires < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification token has expired. Please request a new verification email."
+        )
+    
+    # Verify the email
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_expires = None
+    db.commit()
+    
+    logger.info(f"Email verified successfully for {user.email}")
+    
+    return {"message": "Email verified successfully"}
+
+
+@router.post("/resend-verification", status_code=status.HTTP_200_OK)
+@limiter.limit("5/hour")
+async def resend_verification(
+    request: Request,
+    email_data: ForgotPasswordRequest,  # Reuse this model (just needs email)
+    db: Session = Depends(get_db)
+):
+    """Resend email verification token."""
+    user = db.query(models.User).filter(models.User.email == email_data.email).first()
+    
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If that email exists and is unverified, a verification email has been sent."}
+    
+    # If already verified, return success message
+    if user.email_verified:
+        return {"message": "Email already verified"}
+    
+    # Generate new verification token
+    verification_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    user.email_verification_token = verification_token
+    user.email_verification_expires = expires_at
+    db.commit()
+    
+    # Send verification email
+    from app.services.email_service import send_email_verification_email
+    email_sent = send_email_verification_email(user.email, verification_token)
+    
+    # Log email sending status
+    if email_sent:
+        logger.info(f"Verification email resent successfully to {user.email}")
+    else:
+        logger.error(
+            f"Verification email FAILED to send to {user.email}. "
+            f"Check SendGrid configuration and logs for details."
+        )
+    
+    return {"message": "If that email exists and is unverified, a verification email has been sent."}
 

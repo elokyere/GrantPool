@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
@@ -15,7 +15,19 @@ function Landing() {
   const [fullName, setFullName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { user, logout } = useAuth()
+  const [loadingMessage, setLoadingMessage] = useState('')
+  const [showDataContribution, setShowDataContribution] = useState(false)
+  const [isProcessingRegistration, setIsProcessingRegistration] = useState(false)
+  const [projectData, setProjectData] = useState({
+    name: '',
+    description: '',
+    stage: '',
+    funding_need: '',
+    urgency: 'moderate',
+    founder_type: '',
+    timeline_constraints: '',
+  })
+  const { user, logout, login } = useAuth()
   const navigate = useNavigate()
 
   const handleLogout = () => {
@@ -32,8 +44,86 @@ function Landing() {
       return
     }
 
-    // Show registration form
+    // If user is already logged in, proceed directly to evaluation
+    if (user) {
+      const isFirstTime = await checkIsFirstTime()
+      if (isFirstTime) {
+        // Store grant URL and name in sessionStorage for dashboard to use
+        sessionStorage.setItem('pending_grant_url', grantUrl)
+        sessionStorage.setItem('pending_grant_name', grantName || '')
+        // Navigate to dashboard with flag to show data contribution
+        navigate('/dashboard?show_data_contribution=true')
+        return
+      }
+      await handleEvaluateGrant()
+      return
+    }
+
+    // Show registration form for new users
     setShowRegistration(true)
+  }
+
+  // Check if user is first-time (no evaluations)
+  const checkIsFirstTime = async () => {
+    try {
+      const response = await api.get('/api/v1/evaluations/')
+      const evaluations = Array.isArray(response.data) ? response.data : []
+      return evaluations.length === 0
+    } catch (err) {
+      // If error, assume first-time to be safe
+      return true
+    }
+  }
+
+  const handleEvaluateGrant = async (projectId = null) => {
+    setError('')
+    setLoading(true)
+    setLoadingMessage('Extracting grant information...')
+
+    try {
+      // Step 1: Create grant from URL
+      setLoadingMessage('Extracting grant information from URL...')
+      const grantResponse = await api.post('/api/v1/grants/from-url', {
+        source_url: grantUrl,
+        name: grantName || null,
+      })
+
+      // Step 2: Create evaluation
+      setLoadingMessage('Creating your assessment...')
+      const evaluationResponse = await api.post('/api/v1/evaluations/', {
+        grant_id: grantResponse.data.id,
+        project_id: projectId,
+        use_llm: true,
+      })
+
+      // Step 3: Navigate to dashboard - Dashboard will handle loading/polling
+      // The evaluation is created synchronously, but Dashboard will show loading state
+      // and poll if needed until the evaluation is fully ready
+      navigate(`/dashboard?evaluation=${evaluationResponse.data.id}`)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to process grant evaluation')
+      setLoading(false)
+      setLoadingMessage('')
+    }
+  }
+
+  const handleCreateProjectAndEvaluate = async () => {
+    setError('')
+    setLoading(true)
+    setLoadingMessage('Creating your project profile...')
+
+    try {
+      // Create project first
+      const projectResponse = await api.post('/api/v1/projects/', projectData)
+      const projectId = projectResponse.data.id
+
+      // Then create evaluation with this project
+      await handleEvaluateGrant(projectId)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to create project')
+      setLoading(false)
+      setLoadingMessage('')
+    }
   }
 
   const handleRegisterAndEvaluate = async (e) => {
@@ -42,46 +132,183 @@ function Landing() {
     setLoading(true)
 
     try {
-      // Register user
-      const registerResponse = await api.post('/api/v1/auth/register', {
-        email,
-        password,
-        full_name: fullName || null,
-      })
+      let registrationSucceeded = false
 
-      // Login user
-      const formData = new FormData()
-      formData.append('username', email)
-      formData.append('password', password)
-      const loginResponse = await api.post('/api/v1/auth/login', formData, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      })
+      // Try to register user first
+      try {
+        await api.post('/api/v1/auth/register', {
+          email,
+          password,
+          full_name: fullName || null,
+        })
+        registrationSucceeded = true
+      } catch (registerErr) {
+        // If registration fails because email already exists, try to login instead
+        if (registerErr.response?.status === 400 && 
+            registerErr.response?.data?.detail === 'Email already registered') {
+          // User already exists - will try to login below
+          registrationSucceeded = false
+        } else {
+          // Other registration errors, re-throw
+          throw registerErr
+        }
+      }
 
-      const { access_token } = loginResponse.data
-      localStorage.setItem('token', access_token)
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
+      // Login user (either new user after registration, or existing user)
+      // This updates AuthContext and sets the user state
+      await login(email, password)
 
-      // Create grant from URL
-      const grantResponse = await api.post('/api/v1/grants/from-url', {
-        source_url: grantUrl,
-        name: grantName || null,
-      })
+      // Store grant URL and name in sessionStorage for dashboard to use
+      sessionStorage.setItem('pending_grant_url', grantUrl)
+      sessionStorage.setItem('pending_grant_name', grantName || '')
+      
+      // Check if first-time user - navigate to dashboard with flag to show data contribution
+      const isFirstTime = await checkIsFirstTime()
+      if (isFirstTime) {
+        // Navigate to dashboard - it will show data contribution modal
+        navigate('/dashboard?show_data_contribution=true')
+        return
+      }
 
-      // Create evaluation (will auto-create default project)
-      const evaluationResponse = await api.post('/api/v1/evaluations/', {
-        grant_id: grantResponse.data.id,
-        use_llm: true,
-        // project_id not provided - will auto-create default project
-      })
-
-      // Navigate to dashboard with evaluation
-      navigate(`/dashboard?evaluation=${evaluationResponse.data.id}`)
+      // For existing users, proceed with grant evaluation directly
+      await handleEvaluateGrant()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to process grant evaluation')
+      // Handle login errors specifically
+      if (err.response?.status === 401) {
+        setError('Incorrect password. Please try again or use a different email.')
+      } else {
+        setError(err.response?.data?.detail || err.message || 'Failed to process grant evaluation')
+      }
       setLoading(false)
     }
+  }
+
+  // Data Contribution Modal for First-Time Users
+  if (showDataContribution) {
+    return (
+      <div className="landing-page">
+        <div className="landing-card" style={{ maxWidth: '600px' }}>
+          <h2>Make Your First Assessment More Comprehensive</h2>
+          <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>
+            Help us understand your project better. This will make your assessment more accurate and personalized.
+            You can skip this and use default settings, but providing project details will give you better insights.
+          </p>
+          
+          <form onSubmit={(e) => { e.preventDefault(); handleCreateProjectAndEvaluate(); }}>
+            <div className="form-group">
+              <label htmlFor="projectName">Project Name *</label>
+              <input
+                type="text"
+                id="projectName"
+                value={projectData.name}
+                onChange={(e) => setProjectData({...projectData, name: e.target.value})}
+                placeholder="e.g., Community Health Initiative"
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="projectDescription">Project Description *</label>
+              <textarea
+                id="projectDescription"
+                value={projectData.description}
+                onChange={(e) => setProjectData({...projectData, description: e.target.value})}
+                placeholder="Describe what your project does, who it serves, and what problem it solves..."
+                required
+                rows={4}
+                style={{ fontFamily: 'inherit', resize: 'vertical' }}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="projectStage">Project Stage *</label>
+              <select
+                id="projectStage"
+                value={projectData.stage}
+                onChange={(e) => setProjectData({...projectData, stage: e.target.value})}
+                required
+              >
+                <option value="">Select stage...</option>
+                <option value="Idea">Idea</option>
+                <option value="Early Development">Early Development</option>
+                <option value="Pilot">Pilot</option>
+                <option value="Established">Established</option>
+                <option value="Scaling">Scaling</option>
+              </select>
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="fundingNeed">Funding Need *</label>
+              <select
+                id="fundingNeed"
+                value={projectData.funding_need}
+                onChange={(e) => setProjectData({...projectData, funding_need: e.target.value})}
+                required
+              >
+                <option value="">Select funding need...</option>
+                <option value="Seed funding">Seed funding</option>
+                <option value="Growth capital">Growth capital</option>
+                <option value="Operational support">Operational support</option>
+                <option value="Research funding">Research funding</option>
+                <option value="Program expansion">Program expansion</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="urgency">Urgency</label>
+              <select
+                id="urgency"
+                value={projectData.urgency}
+                onChange={(e) => setProjectData({...projectData, urgency: e.target.value})}
+              >
+                <option value="low">Low - Flexible timeline</option>
+                <option value="moderate">Moderate - Some time pressure</option>
+                <option value="high">High - Urgent need</option>
+              </select>
+            </div>
+            
+            {error && <div className="landing-error">{error}</div>}
+            {loading && loadingMessage && (
+              <div style={{ 
+                padding: '1rem', 
+                backgroundColor: '#f0f9ff', 
+                borderRadius: '8px', 
+                marginBottom: '1rem',
+                textAlign: 'center',
+                color: '#1e40af',
+                fontWeight: '500'
+              }}>
+                {loadingMessage}
+              </div>
+            )}
+            
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+              <button 
+                type="submit" 
+                className="landing-cta" 
+                disabled={loading}
+                style={{ flex: 1 }}
+              >
+                {loading ? (loadingMessage || 'Processing...') : 'Continue with Project Details'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDataContribution(false)
+                  handleEvaluateGrant()
+                }}
+                className="btn-secondary"
+                disabled={loading}
+                style={{ flex: 1 }}
+              >
+                Skip & Use Defaults
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
   }
 
   if (showRegistration) {
@@ -158,8 +385,21 @@ function Landing() {
               </div>
             )}
             {error && <div className="landing-error">{error}</div>}
+            {loading && loadingMessage && (
+              <div style={{ 
+                padding: '1rem', 
+                backgroundColor: '#f0f9ff', 
+                borderRadius: '8px', 
+                marginBottom: '1rem',
+                textAlign: 'center',
+                color: '#1e40af',
+                fontWeight: '500'
+              }}>
+                {loadingMessage}
+              </div>
+            )}
             <button type="submit" className="landing-cta" disabled={loading}>
-              {loading ? 'Processing...' : 'Analyze Grant'}
+              {loading ? (loadingMessage || 'Processing...') : 'Analyze Grant'}
             </button>
             <button
               type="button"
@@ -242,12 +482,60 @@ function Landing() {
           <p className="input-caption">
             Paste any grant listing link to check eligibility instantly.
           </p>
+          <div style={{
+            marginTop: '0.5rem',
+            padding: '0.75rem',
+            backgroundColor: '#f0f9ff',
+            borderRadius: '8px',
+            border: '1px solid #bfdbfe',
+            fontSize: '0.85rem',
+            color: '#1e40af'
+          }}>
+            <div style={{ fontWeight: '500', marginBottom: '0.25rem' }}>
+              Best Practice Example:
+            </div>
+            <div style={{ 
+              fontFamily: 'monospace', 
+              fontSize: '0.8rem', 
+              color: '#4a77e8',
+              wordBreak: 'break-all',
+              marginTop: '0.25rem',
+              padding: '0.5rem',
+              backgroundColor: 'white',
+              borderRadius: '4px',
+              border: '1px solid #bfdbfe'
+            }}>
+              https://www.funder-website.org/grants/program-name
+            </div>
+            <div style={{ 
+              fontSize: '0.75rem', 
+              color: '#64748b', 
+              marginTop: '0.5rem',
+              lineHeight: '1.4'
+            }}>
+              <strong>Best results:</strong> Use official funder pages (the organization's own website) rather than aggregator sites. Official pages contain complete grant details, eligibility criteria, and application requirements.
+            </div>
+          </div>
           {error && <div className="landing-error">{error}</div>}
+          {loading && loadingMessage && (
+            <div style={{ 
+              padding: '1rem', 
+              backgroundColor: '#f0f9ff', 
+              borderRadius: '8px', 
+              marginBottom: '1rem',
+              textAlign: 'center',
+              color: '#1e40af',
+              fontWeight: '500'
+            }}>
+              {loadingMessage}
+            </div>
+          )}
           <button 
             type="submit" 
             className="landing-cta"
+            disabled={loading}
           >
-            Analyze Grant
+            {loading ? (loadingMessage || 'Processing...') : 'Analyze Grant'}
           </button>
         </form>
 

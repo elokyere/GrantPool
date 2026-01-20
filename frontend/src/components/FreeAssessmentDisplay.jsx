@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../services/api'
 import ContactFunderTemplate from './ContactFunderTemplate'
 import ContributeDataForm from './ContributeDataForm'
 
@@ -11,7 +12,7 @@ import ContributeDataForm from './ContributeDataForm'
  * Does NOT show: mission alignment, profile match (requires project data).
  */
 
-function FreeAssessmentDisplay({ evaluation, grantData }) {
+function FreeAssessmentDisplay({ evaluation, grantData, projectData }) {
   const navigate = useNavigate()
   const [showContactTemplate, setShowContactTemplate] = useState(false)
   const [showContributeForm, setShowContributeForm] = useState(false)
@@ -27,6 +28,14 @@ function FreeAssessmentDisplay({ evaluation, grantData }) {
   const eligibility = grantSnapshot.eligibility || grantData?.eligibility || null
   const recipientPatterns = grantSnapshot.recipient_patterns || grantData?.recipient_patterns || {}
   const recipients = recipientPatterns?.recipients || []
+  
+  // Extract mission data for comparison - use description as fallback for grant
+  const grantMission = grantSnapshot.mission || grantData?.mission || grantSnapshot.description || grantData?.description || null
+  const projectMission = projectData?.description || null
+  const hasProjectData = projectData && projectData.description && projectData.description.trim() !== '' && projectData.description !== 'Not specified'
+  
+  // Show mission comparison if we have project data (even if grant mission is missing, we'll show what we have)
+  const shouldShowMissionComparison = hasProjectData && (grantMission || grantSnapshot.description || grantData?.description)
 
   // Extract grant quality data
   const clarityScore = grantQuality.clarity_score ?? evaluation.composite_score
@@ -200,6 +209,34 @@ function FreeAssessmentDisplay({ evaluation, grantData }) {
 
   return (
     <div className="card" style={{ marginBottom: '1.5rem' }}>
+      {/* Free Assessment Info Banner */}
+      <div style={{
+        marginBottom: '1.5rem',
+        padding: '1rem 1.25rem',
+        backgroundColor: '#e7f3ff',
+        borderRadius: '8px',
+        border: '1px solid #b3d9ff',
+        borderLeft: '4px solid #4a77e8'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'start', gap: '0.75rem' }}>
+          <div style={{ flexShrink: 0, marginTop: '0.125rem' }}>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 2C5.58 2 2 5.58 2 10C2 14.42 5.58 18 10 18C14.42 18 18 14.42 18 10C18 5.58 14.42 2 10 2ZM10 14C9.45 14 9 13.55 9 13V9C9 8.45 9.45 8 10 8C10.55 8 11 8.45 11 9V13C11 13.55 10.55 14 10 14ZM9 6H11V4H9V6Z" fill="#4a77e8"/>
+            </svg>
+          </div>
+          <div style={{ flex: 1 }}>
+            <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: '600', color: '#004085' }}>
+              Free Assessment - Grant Quality Analysis
+            </h4>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#004085', lineHeight: '1.5' }}>
+              This assessment evaluates <strong>grant quality characteristics</strong> (clarity, access barriers, timeline, award structure, competition). 
+              For <strong>personalized fit assessment</strong> including mission alignment, profile match, and success probability, 
+              upgrade to a paid assessment ($7) or use bundle credits.
+            </p>
+          </div>
+        </div>
+      </div>
+      
       {isLegacy && (
         <div style={{
           padding: '0.5rem',
@@ -359,6 +396,134 @@ function FreeAssessmentDisplay({ evaluation, grantData }) {
                 Cannot estimate competitiveness
               </div>
             </>
+          )}
+          
+          {/* Mission Alignment Preview - Show if project data was provided (even if competition is unknown) */}
+          {shouldShowMissionComparison && (
+            <div style={{ 
+              marginTop: '1.25rem', 
+              padding: '1rem', 
+              backgroundColor: '#ffffff', 
+              borderRadius: '6px',
+              border: '1px solid #e5e7eb'
+            }}>
+              <div style={{ fontSize: '0.75rem', color: '#6c757d', marginBottom: '0.75rem', fontWeight: '600' }}>
+                Mission Alignment Preview
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: '#6c757d', marginBottom: '0.25rem' }}>Your Project</div>
+                  <div style={{ 
+                    padding: '0.625rem', 
+                    backgroundColor: '#f8f9fa', 
+                    borderRadius: '4px',
+                    fontSize: '0.8rem',
+                    color: '#495057',
+                    lineHeight: '1.4',
+                    maxHeight: '60px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    {projectMission && projectMission.length > 80 ? projectMission.substring(0, 80) + '...' : (projectMission || 'No project description')}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: '#6c757d', marginBottom: '0.25rem' }}>
+                    {grantMission ? 'Grant Mission' : 'Grant Description'}
+                  </div>
+                  <div style={{ 
+                    padding: '0.625rem', 
+                    backgroundColor: '#e7f3ff', 
+                    borderRadius: '4px',
+                    fontSize: '0.8rem',
+                    color: '#004085',
+                    lineHeight: '1.4',
+                    maxHeight: '60px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    {grantMission && grantMission.length > 80 ? grantMission.substring(0, 80) + '...' : (grantMission || 'No grant mission available')}
+                  </div>
+                </div>
+              </div>
+
+              {/* Show LLM assessment preview if available */}
+              {evaluation.mission_alignment !== null && evaluation.mission_alignment !== undefined ? (
+                <div style={{
+                  padding: '0.75rem',
+                  backgroundColor: '#d4edda',
+                  borderRadius: '4px',
+                  border: '1px solid #c3e6cb'
+                }}>
+                  <div style={{ fontSize: '0.75rem', color: '#155724', marginBottom: '0.25rem', fontWeight: '600' }}>
+                    Alignment Score
+                  </div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#155724' }}>
+                    {evaluation.mission_alignment}/10
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  padding: '0.75rem',
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: '4px',
+                  border: '2px dashed #dee2e6',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    backdropFilter: 'blur(2px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1,
+                    gap: '0.5rem',
+                    flexDirection: 'column'
+                  }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: '600', color: '#495057' }}>
+                      Full Analysis
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const response = await api.post('/api/v1/payments/initialize', {
+                            country_code: null,
+                            payment_type: 'standard',
+                          })
+                          // Store current evaluation context for after payment
+                          sessionStorage.setItem('pending_evaluation_after_payment', JSON.stringify({
+                            grant_id: evaluation.grant_id,
+                            grant_url: evaluation.grant_url,
+                            project_id: evaluation.project_id,
+                            use_llm: true,
+                          }))
+                          // Redirect to Paystack payment
+                          window.location.href = response.data.authorization_url
+                        } catch (error) {
+                          alert(error.response?.data?.detail || 'Failed to initialize payment')
+                        }
+                      }}
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.75rem', padding: '0.375rem 0.75rem' }}
+                    >
+                      Upgrade ($7)
+                    </button>
+                  </div>
+                  <div style={{ opacity: 0.2, pointerEvents: 'none' }}>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#28a745' }}>
+                      8.5/10 Alignment
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

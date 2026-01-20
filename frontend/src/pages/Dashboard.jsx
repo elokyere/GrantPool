@@ -13,12 +13,44 @@ import '../App.css'
 function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
   const evaluationId = searchParams.get('evaluation')
+  const showDataContribution = searchParams.get('show_data_contribution') === 'true'
   const [showForm, setShowForm] = useState(false)
   const [showPaywall, setShowPaywall] = useState(false)
   const [showReportIssue, setShowReportIssue] = useState(false)
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
   const [selectedPaymentType, setSelectedPaymentType] = useState('standard')
   const [reportIssueContext, setReportIssueContext] = useState({})
+  const [showDataContributionModal, setShowDataContributionModal] = useState(false)
+  const [pendingGrantUrl, setPendingGrantUrl] = useState(null)
+  const [pendingGrantName, setPendingGrantName] = useState('')
+  const [isDataContributionFlow, setIsDataContributionFlow] = useState(false) // Track if we're in data contribution flow
+  const [showProjectFormInModal, setShowProjectFormInModal] = useState(false) // Show project form inside modal
+  const [showGrantDataForm, setShowGrantDataForm] = useState(false) // Show grant data editing form
+  const [extractedGrantDataForModal, setExtractedGrantDataForModal] = useState(null) // Store extracted grant data for editing in modal
+  const [extractingGrantData, setExtractingGrantData] = useState(false) // Loading state for extraction
+  const [grantDataForm, setGrantDataForm] = useState({
+    name: '',
+    description: '',
+    deadline: '',
+    decision_date: '',
+    award_amount: '',
+    award_structure: '',
+    eligibility: '',
+    preferred_applicants: '',
+    application_requirements: '',
+    reporting_requirements: '',
+    restrictions: '',
+    mission: '',
+  })
+  const [projectFormData, setProjectFormData] = useState({
+    name: '',
+    description: '',
+    stage: '',
+    funding_need: '',
+    urgency: 'moderate',
+    founder_type: '',
+    timeline_constraints: '',
+  })
   const [formData, setFormData] = useState({
     grant_id: '',
     grant_url: '',  // For Option A: in-memory grants
@@ -49,6 +81,18 @@ function Dashboard() {
   const [pendingEvaluationId, setPendingEvaluationId] = useState(null)  // Track newly created evaluation ID
 
   const queryClient = useQueryClient()
+
+  // Helper function to count words
+  const countWords = (text) => {
+    return text.trim() === '' ? 0 : text.trim().split(/\s+/).length
+  }
+
+  // Helper function to limit text to 50 words
+  const limitToWords = (text, maxWords) => {
+    const words = text.trim().split(/\s+/)
+    if (words.length <= maxWords) return text
+    return words.slice(0, maxWords).join(' ')
+  }
 
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
@@ -108,13 +152,23 @@ function Dashboard() {
   })
 
   // Get single evaluation if ID provided
-  const { data: singleEvaluation, isLoading: singleLoading } = useQuery({
+  const { data: singleEvaluation, isLoading: singleLoading, refetch: refetchEvaluation } = useQuery({
     queryKey: ['evaluation', evaluationId],
     queryFn: async () => {
       const response = await api.get(`/api/v1/evaluations/${evaluationId}`)
       return response.data
     },
     enabled: !!evaluationId,
+    refetchInterval: (query) => {
+      // If evaluation is loading and we have an evaluationId, poll every 2 seconds
+      // Stop polling once we have data with composite_score
+      const data = query.state.data
+      if (data && data.composite_score !== null && data.composite_score !== undefined) {
+        return false // Stop polling
+      }
+      return evaluationId ? 2000 : false // Poll every 2 seconds if evaluationId exists
+    },
+    refetchOnWindowFocus: true,
   })
 
   // Get credit status to check if paywall needed
@@ -255,6 +309,84 @@ function Dashboard() {
         // Show the actual error message from backend
         alert(`Error: ${errorMessage}`)
       }
+    },
+  })
+
+  // Mutation to create project
+  const createProjectMutation = useMutation({
+    mutationFn: async (data) => {
+      const response = await api.post('/api/v1/projects/', data)
+      return response.data
+    },
+    onSuccess: async (projectData) => {
+      queryClient.invalidateQueries(['projects'])
+      // After project is created, automatically create evaluation with pending grant
+      // Include grant data if user edited it
+      const grantUrlToUse = pendingGrantUrl || sessionStorage.getItem('pending_grant_url')
+      if (grantUrlToUse) {
+        // Pass grant data form if user edited grant data - filter out empty strings
+        const grantDataToUse = showGrantDataForm ? (() => {
+          const data = {}
+          if (grantDataForm.name?.trim() || pendingGrantName?.trim()) {
+            data.grant_name = (grantDataForm.name || pendingGrantName).trim()
+          }
+          if (grantDataForm.description?.trim()) {
+            data.grant_description = grantDataForm.description.trim()
+          }
+          if (grantDataForm.deadline?.trim()) {
+            data.grant_deadline = grantDataForm.deadline.trim()
+          }
+          if (grantDataForm.decision_date?.trim()) {
+            data.grant_decision_date = grantDataForm.decision_date.trim()
+          }
+          if (grantDataForm.award_amount?.trim()) {
+            data.grant_award_amount = grantDataForm.award_amount.trim()
+          }
+          if (grantDataForm.award_structure?.trim()) {
+            data.grant_award_structure = grantDataForm.award_structure.trim()
+          }
+          if (grantDataForm.eligibility?.trim()) {
+            data.grant_eligibility = grantDataForm.eligibility.trim()
+          }
+          if (grantDataForm.preferred_applicants?.trim()) {
+            data.grant_preferred_applicants = grantDataForm.preferred_applicants.trim()
+          }
+          if (grantDataForm.application_requirements?.trim()) {
+            const items = grantDataForm.application_requirements.split('\n').filter(l => l.trim())
+            if (items.length > 0) {
+              data.grant_application_requirements = items
+            }
+          }
+          if (grantDataForm.reporting_requirements?.trim()) {
+            data.grant_reporting_requirements = grantDataForm.reporting_requirements.trim()
+          }
+          if (grantDataForm.restrictions?.trim()) {
+            const items = grantDataForm.restrictions.split('\n').filter(l => l.trim())
+            if (items.length > 0) {
+              data.grant_restrictions = items
+            }
+          }
+          if (grantDataForm.mission?.trim()) {
+            data.grant_mission = grantDataForm.mission.trim()
+          }
+          return Object.keys(data).length > 0 ? data : null
+        })() : null
+        await handleCreateEvaluationFromPending(projectData.id, grantDataToUse)
+      }
+      // Reset form
+      setProjectFormData({
+        name: '',
+        description: '',
+        stage: '',
+        funding_need: '',
+        urgency: 'moderate',
+        founder_type: '',
+        timeline_constraints: '',
+      })
+      setShowProjectFormInModal(false)
+    },
+    onError: (err) => {
+      alert(err.response?.data?.detail || 'Failed to create project')
     },
   })
 
@@ -623,6 +755,244 @@ function Dashboard() {
     }
   }, [queryClient, setSearchParams])
 
+  // Handle data contribution modal for first-time users from landing page
+  // Check both query param AND sessionStorage (in case redirect dropped the param)
+  useEffect(() => {
+    // Only check if modal isn't already shown and we don't have a pending evaluation
+    if (showDataContributionModal || pendingEvaluationId) {
+      return
+    }
+
+    const grantUrl = sessionStorage.getItem('pending_grant_url')
+    const grantName = sessionStorage.getItem('pending_grant_name') || ''
+    
+    // Show modal if query param is present OR if sessionStorage has pending grant
+    // AND we don't already have the grant URL in state
+    if ((showDataContribution || grantUrl) && grantUrl && !pendingGrantUrl) {
+      console.log('Showing data contribution modal for grant:', grantUrl)
+      setPendingGrantUrl(grantUrl)
+      setPendingGrantName(grantName)
+      setShowDataContributionModal(true)
+      // Remove the query parameter if present
+      if (showDataContribution) {
+        setSearchParams({})
+      }
+      // Don't clear sessionStorage yet - wait until evaluation is created
+    }
+  }, [showDataContribution, setSearchParams, showDataContributionModal, pendingGrantUrl, pendingEvaluationId])
+
+  // Also check on initial mount in case sessionStorage was set before component mounted
+  useEffect(() => {
+    if (!showDataContributionModal && !pendingEvaluationId && !pendingGrantUrl) {
+      const grantUrl = sessionStorage.getItem('pending_grant_url')
+      const grantName = sessionStorage.getItem('pending_grant_name') || ''
+      
+      if (grantUrl) {
+        console.log('Found pending grant URL on mount:', grantUrl)
+        setPendingGrantUrl(grantUrl)
+        setPendingGrantName(grantName)
+        setShowDataContributionModal(true)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run on mount
+
+  // Extract grant data first (for user to review/edit)
+  const handleExtractGrantData = async () => {
+    const grantUrlToUse = pendingGrantUrl || sessionStorage.getItem('pending_grant_url')
+    if (!grantUrlToUse) {
+      alert('No grant URL found')
+      return
+    }
+
+    setExtractingGrantData(true)
+    try {
+      const response = await api.post('/api/v1/grants/extract', {
+        source_url: grantUrlToUse,
+        name: null,
+      })
+      
+      const extracted = response.data
+      setExtractedGrantData(extracted)
+      
+      // Populate grant data form with extracted data
+      setGrantDataForm({
+        name: extracted.name || '',
+        description: extracted.description || '',
+        deadline: extracted.deadline || '',
+        decision_date: extracted.decision_date || '',
+        award_amount: extracted.award_amount || '',
+        award_structure: extracted.award_structure || '',
+        eligibility: extracted.eligibility || '',
+        preferred_applicants: Array.isArray(extracted.preferred_applicants) 
+          ? extracted.preferred_applicants.join('\n') 
+          : (extracted.preferred_applicants || ''),
+        application_requirements: Array.isArray(extracted.application_requirements)
+          ? extracted.application_requirements.join('\n')
+          : (extracted.application_requirements || ''),
+        reporting_requirements: extracted.reporting_requirements || '',
+        restrictions: Array.isArray(extracted.restrictions)
+          ? extracted.restrictions.join('\n')
+          : (extracted.restrictions || ''),
+        mission: extracted.mission || '',
+      })
+      
+      setShowGrantDataForm(true)
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to extract grant data')
+    } finally {
+      setExtractingGrantData(false)
+    }
+  }
+
+  // Handler to create evaluation with project and grant data
+  const handleCreateEvaluationFromPending = async (projectId = null, grantDataOverride = null) => {
+    // Get grant URL from state or sessionStorage (in case state was lost)
+    const grantUrlToUse = pendingGrantUrl || sessionStorage.getItem('pending_grant_url')
+    const grantNameToUse = pendingGrantName || sessionStorage.getItem('pending_grant_name') || ''
+    
+    if (!grantUrlToUse) {
+      console.error('No pending grant URL found')
+      return
+    }
+
+    setIsAssessing(true)
+    setShowDataContributionModal(false)
+    setShowGrantDataForm(false)
+
+    try {
+      // Prepare grant context from form data (if user edited it)
+      // Only include fields that have actual values (not empty strings)
+      const buildGrantContext = (formData) => {
+        const context = {}
+        if (formData.name?.trim()) context.grant_name = formData.name.trim()
+        if (formData.description?.trim()) context.grant_description = formData.description.trim()
+        if (formData.deadline?.trim()) context.grant_deadline = formData.deadline.trim()
+        if (formData.decision_date?.trim()) context.grant_decision_date = formData.decision_date.trim()
+        if (formData.award_amount?.trim()) context.grant_award_amount = formData.award_amount.trim()
+        if (formData.award_structure?.trim()) context.grant_award_structure = formData.award_structure.trim()
+        if (formData.eligibility?.trim()) context.grant_eligibility = formData.eligibility.trim()
+        if (formData.reporting_requirements?.trim()) context.grant_reporting_requirements = formData.reporting_requirements.trim()
+        if (formData.mission?.trim()) context.grant_mission = formData.mission.trim()
+        
+        // Handle list fields - convert to array if there's content
+        // NOTE: grant_preferred_applicants should be a STRING, not an array (backend expects str)
+        if (formData.preferred_applicants?.trim()) {
+          context.grant_preferred_applicants = formData.preferred_applicants.trim()
+        }
+        // grant_application_requirements and grant_restrictions should be arrays
+        if (formData.application_requirements?.trim()) {
+          const items = formData.application_requirements.split('\n').filter(l => l.trim())
+          if (items.length > 0) context.grant_application_requirements = items
+        }
+        if (formData.restrictions?.trim()) {
+          const items = formData.restrictions.split('\n').filter(l => l.trim())
+          if (items.length > 0) context.grant_restrictions = items
+        }
+        
+        return Object.keys(context).length > 0 ? context : null
+      }
+
+      const grantContext = grantDataOverride || (showGrantDataForm ? buildGrantContext(grantDataForm) : null)
+
+      // Create evaluation with grant_url (in-memory) and optional grant context
+      // Build the request object carefully - only include fields that should be sent
+      const evaluationData = {
+        grant_url: grantUrlToUse.trim(), // Ensure it's a string, not null/undefined
+        use_llm: true,
+      }
+      
+      // Add project_id only if provided (don't send null/undefined)
+      if (projectId !== null && projectId !== undefined) {
+        evaluationData.project_id = projectId
+      }
+      
+      // Add grant context fields if available - filter out empty/null values
+      if (grantContext && typeof grantContext === 'object') {
+        Object.keys(grantContext).forEach(key => {
+          const value = grantContext[key]
+          // Only include if value is not null, undefined, or empty string
+          if (value !== null && value !== undefined && value !== '') {
+            // For arrays, only include if not empty
+            if (Array.isArray(value)) {
+              if (value.length > 0) {
+                evaluationData[key] = value
+              }
+            } else if (typeof value === 'string' && value.trim() !== '') {
+              evaluationData[key] = value.trim()
+            } else {
+              evaluationData[key] = value
+            }
+          }
+        })
+      }
+      
+      // Add grant_name if we have it from pendingGrantName but no grant context
+      if (!grantContext && grantNameToUse?.trim()) {
+        evaluationData.grant_name = grantNameToUse.trim()
+      }
+
+      // Debug: Log the request data
+      console.log('Creating evaluation with data:', JSON.stringify(evaluationData, null, 2))
+      
+      // Validate required fields before sending
+      if (!evaluationData.grant_url || evaluationData.grant_url.trim() === '') {
+        alert('Error: Grant URL is missing or empty')
+        setIsAssessing(false)
+        return
+      }
+
+      const evaluationResponse = await api.post('/api/v1/evaluations/', evaluationData)
+
+      // Clear sessionStorage now that evaluation is created
+      sessionStorage.removeItem('pending_grant_url')
+      sessionStorage.removeItem('pending_grant_name')
+
+      // Navigate to the evaluation
+      setPendingEvaluationId(evaluationResponse.data.id.toString())
+      setSearchParams({ evaluation: evaluationResponse.data.id.toString() })
+      setPendingGrantUrl(null)
+      setPendingGrantName('')
+      setShowGrantDataForm(false)
+      setExtractedGrantDataForModal(null)
+    } catch (err) {
+      // Show detailed error message for 422 validation errors
+      let errorMessage = 'Failed to create evaluation'
+      if (err.response?.status === 422) {
+        // Validation error - show the detail
+        const detail = err.response?.data?.detail
+        if (Array.isArray(detail)) {
+          // Pydantic validation errors are arrays
+          errorMessage = `Validation error: ${detail.map(d => d.msg || d).join(', ')}`
+        } else if (typeof detail === 'string') {
+          errorMessage = `Validation error: ${detail}`
+        } else {
+          errorMessage = `Validation error: ${JSON.stringify(detail)}`
+        }
+        console.error('Validation error details:', detail)
+        if (Array.isArray(detail)) {
+          detail.forEach((err, idx) => {
+            console.error(`Validation error ${idx + 1}:`, {
+              field: err.loc ? err.loc.join('.') : 'unknown',
+              message: err.msg || err,
+              type: err.type || 'unknown',
+              input: err.input
+            })
+          })
+        }
+        if (evaluationData) {
+          console.error('Request data that failed:', JSON.stringify(evaluationData, null, 2))
+        } else {
+          console.error('Request data that failed: evaluationData was not initialized')
+        }
+      } else {
+        errorMessage = err.response?.data?.detail || err.message || errorMessage
+      }
+      alert(errorMessage)
+      setIsAssessing(false)
+    }
+  }
+
   // Don't show full-page loading - show skeleton loaders instead for better UX
   // This prevents the jarring "0" values from appearing
 
@@ -731,8 +1101,30 @@ function Dashboard() {
     if (singleLoading && !isWaitingForPending) {
       return (
         <div className="container" style={{ textAlign: 'center', padding: '3rem' }}>
-          <div style={{ fontSize: '1.125rem', color: '#6b7280', marginBottom: '1rem' }}>Loading evaluation...</div>
-          <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>Please wait while we fetch the evaluation from the database.</div>
+          <div style={{ 
+            display: 'inline-block',
+            width: '40px',
+            height: '40px',
+            border: '4px solid #f3f4f6',
+            borderTop: '4px solid #4a77e8',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            marginBottom: '1rem'
+          }}></div>
+          <div style={{ fontSize: '1.125rem', color: '#6b7280', marginBottom: '0.5rem', fontWeight: '500' }}>
+            {isWaitingForPending ? 'Generating your assessment...' : 'Loading evaluation...'}
+          </div>
+          <div style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
+            {isWaitingForPending 
+              ? 'This may take a few moments. We\'re analyzing the grant and preparing your personalized assessment.'
+              : 'Please wait while we fetch the evaluation from the database.'}
+          </div>
+          <style>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
         </div>
       )
     }
@@ -816,7 +1208,7 @@ function Dashboard() {
 
         {/* Render appropriate component based on assessment type */}
         {assessmentType === 'free' ? (
-          <FreeAssessmentDisplay evaluation={evaluation} grantData={grantData} />
+          <FreeAssessmentDisplay evaluation={evaluation} grantData={grantData} projectData={projectData} />
         ) : assessmentType === 'paid' ? (
           <PaidAssessmentDisplay evaluation={evaluation} projectData={projectData} grantData={grantData} />
         ) : (
@@ -1817,7 +2209,7 @@ function Dashboard() {
                     onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
                   >
                     {assessmentType === 'free' ? (
-                      <FreeAssessmentDisplay evaluation={evaluation} grantData={evalGrantData} />
+                      <FreeAssessmentDisplay evaluation={evaluation} grantData={evalGrantData} projectData={evalProjectData} />
                     ) : assessmentType === 'paid' ? (
                       <PaidAssessmentDisplay evaluation={evaluation} projectData={evalProjectData} grantData={evalGrantData} />
                     ) : (
@@ -1868,6 +2260,510 @@ function Dashboard() {
           }}
           initialData={reportIssueContext}
         />
+      )}
+
+      {/* Data Contribution Modal for First-Time Users */}
+      {showDataContributionModal && pendingGrantUrl && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '1rem'
+        }}>
+          <div className="card" style={{ maxWidth: '700px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2>Make Your First Assessment Comprehensive</h2>
+            <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
+              We'll extract grant information and let you add any missing details. You can also add your project details for a more personalized assessment.
+            </p>
+            
+            {pendingGrantUrl && (
+              <div style={{ 
+                padding: '0.75rem', 
+                backgroundColor: '#f0f9ff', 
+                borderRadius: '8px', 
+                marginBottom: '1.5rem',
+                fontSize: '0.9rem'
+              }}>
+                <strong>Grant URL:</strong> 
+                <div style={{ marginTop: '0.25rem', color: '#4a77e8', wordBreak: 'break-all' }}>
+                  {pendingGrantUrl}
+                </div>
+              </div>
+            )}
+
+            {!showGrantDataForm && !showProjectFormInModal && !extractingGrantData && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.5rem' }}>
+                <button
+                  onClick={handleExtractGrantData}
+                  className="btn btn-primary"
+                  disabled={extractingGrantData}
+                >
+                  {extractingGrantData ? 'Extracting...' : 'Extract & Review Grant Data'}
+                </button>
+                <button
+                  onClick={() => handleCreateEvaluationFromPending(null)}
+                  className="btn btn-secondary"
+                  disabled={isAssessing}
+                >
+                  {isAssessing ? 'Creating...' : 'Skip & Use Defaults'}
+                </button>
+              </div>
+            )}
+
+            {extractingGrantData && (
+              <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+                <div style={{ 
+                  display: 'inline-block',
+                  width: '40px',
+                  height: '40px',
+                  border: '4px solid #f3f4f6',
+                  borderTop: '4px solid #4a77e8',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  marginBottom: '1rem'
+                }}></div>
+                <p>Extracting grant information from URL...</p>
+                <style>{`
+                  @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                  }
+                `}</style>
+              </div>
+            )}
+
+            {showGrantDataForm && !showProjectFormInModal && (
+              <div style={{ marginTop: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ margin: 0 }}>Review & Edit Grant Data</h3>
+                  <button
+                    onClick={() => {
+                      setShowGrantDataForm(false)
+                      setExtractedGrantData(null)
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#6b7280',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    Back
+                  </button>
+                </div>
+                
+                <p style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '1rem' }}>
+                  Review the extracted grant information and add any missing details. This will make your assessment more comprehensive.
+                </p>
+
+                <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '1rem' }}>
+                  <div className="form-group">
+                    <label>Grant Name</label>
+                    <input
+                      type="text"
+                      value={grantDataForm.name}
+                      onChange={(e) => setGrantDataForm({...grantDataForm, name: e.target.value})}
+                      placeholder="Grant name"
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Description</label>
+                    <textarea
+                      value={grantDataForm.description}
+                      onChange={(e) => setGrantDataForm({...grantDataForm, description: e.target.value})}
+                      rows={3}
+                      placeholder="Grant description"
+                      style={{ fontFamily: 'inherit', resize: 'vertical' }}
+                    />
+                  </div>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="form-group">
+                      <label>Deadline</label>
+                      <input
+                        type="text"
+                        value={grantDataForm.deadline}
+                        onChange={(e) => setGrantDataForm({...grantDataForm, deadline: e.target.value})}
+                        placeholder="e.g., March 15, 2025"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Decision Date</label>
+                      <input
+                        type="text"
+                        value={grantDataForm.decision_date}
+                        onChange={(e) => setGrantDataForm({...grantDataForm, decision_date: e.target.value})}
+                        placeholder="e.g., June 1, 2025"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="form-group">
+                      <label>Award Amount</label>
+                      <input
+                        type="text"
+                        value={grantDataForm.award_amount}
+                        onChange={(e) => setGrantDataForm({...grantDataForm, award_amount: e.target.value})}
+                        placeholder="e.g., $50,000"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Award Structure</label>
+                      <input
+                        type="text"
+                        value={grantDataForm.award_structure}
+                        onChange={(e) => setGrantDataForm({...grantDataForm, award_structure: e.target.value})}
+                        placeholder="e.g., One-time payment"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Eligibility</label>
+                    <textarea
+                      value={grantDataForm.eligibility}
+                      onChange={(e) => setGrantDataForm({...grantDataForm, eligibility: e.target.value})}
+                      rows={2}
+                      placeholder="Eligibility criteria"
+                      style={{ fontFamily: 'inherit', resize: 'vertical' }}
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Preferred Applicants</label>
+                    <textarea
+                      value={grantDataForm.preferred_applicants}
+                      onChange={(e) => setGrantDataForm({...grantDataForm, preferred_applicants: e.target.value})}
+                      rows={2}
+                      placeholder="One per line"
+                      style={{ fontFamily: 'inherit', resize: 'vertical' }}
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Application Requirements</label>
+                    <textarea
+                      value={grantDataForm.application_requirements}
+                      onChange={(e) => setGrantDataForm({...grantDataForm, application_requirements: e.target.value})}
+                      rows={2}
+                      placeholder="One per line"
+                      style={{ fontFamily: 'inherit', resize: 'vertical' }}
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Mission</label>
+                    <textarea
+                      value={grantDataForm.mission}
+                      onChange={(e) => setGrantDataForm({...grantDataForm, mission: e.target.value})}
+                      rows={2}
+                      placeholder="Grant mission/focus"
+                      style={{ fontFamily: 'inherit', resize: 'vertical' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                  <button
+                    onClick={() => setShowProjectFormInModal(true)}
+                    className="btn btn-primary"
+                    style={{ flex: 1 }}
+                  >
+                    Add Project Details & Assess
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Include edited grant data if available - filter out empty strings
+                      const grantDataToUse = showGrantDataForm ? (() => {
+                        const data = {}
+                        if (grantDataForm.name?.trim() || pendingGrantName?.trim()) {
+                          data.grant_name = (grantDataForm.name || pendingGrantName).trim()
+                        }
+                        if (grantDataForm.description?.trim()) {
+                          data.grant_description = grantDataForm.description.trim()
+                        }
+                        if (grantDataForm.deadline?.trim()) {
+                          data.grant_deadline = grantDataForm.deadline.trim()
+                        }
+                        if (grantDataForm.decision_date?.trim()) {
+                          data.grant_decision_date = grantDataForm.decision_date.trim()
+                        }
+                        if (grantDataForm.award_amount?.trim()) {
+                          data.grant_award_amount = grantDataForm.award_amount.trim()
+                        }
+                        if (grantDataForm.award_structure?.trim()) {
+                          data.grant_award_structure = grantDataForm.award_structure.trim()
+                        }
+                        if (grantDataForm.eligibility?.trim()) {
+                          data.grant_eligibility = grantDataForm.eligibility.trim()
+                        }
+                        if (grantDataForm.preferred_applicants?.trim()) {
+                          data.grant_preferred_applicants = grantDataForm.preferred_applicants.trim()
+                        }
+                        if (grantDataForm.application_requirements?.trim()) {
+                          const items = grantDataForm.application_requirements.split('\n').filter(l => l.trim())
+                          if (items.length > 0) {
+                            data.grant_application_requirements = items
+                          }
+                        }
+                        if (grantDataForm.reporting_requirements?.trim()) {
+                          data.grant_reporting_requirements = grantDataForm.reporting_requirements.trim()
+                        }
+                        if (grantDataForm.restrictions?.trim()) {
+                          const items = grantDataForm.restrictions.split('\n').filter(l => l.trim())
+                          if (items.length > 0) {
+                            data.grant_restrictions = items
+                          }
+                        }
+                        if (grantDataForm.mission?.trim()) {
+                          data.grant_mission = grantDataForm.mission.trim()
+                        }
+                        return Object.keys(data).length > 0 ? data : null
+                      })() : null
+                      handleCreateEvaluationFromPending(null, grantDataToUse)
+                    }}
+                    className="btn btn-secondary"
+                    style={{ flex: 1 }}
+                    disabled={isAssessing}
+                  >
+                    {isAssessing ? 'Creating...' : 'Assess with Grant Data Only'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!showGrantDataForm && !showProjectFormInModal ? null : showProjectFormInModal ? (
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                <button
+                  onClick={() => setShowProjectFormInModal(true)}
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                >
+                  Add Project Details
+                </button>
+                <button
+                  onClick={() => handleCreateEvaluationFromPending(null)}
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  disabled={isAssessing}
+                >
+                  {isAssessing ? 'Creating...' : 'Skip & Use Defaults'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ marginTop: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ margin: 0 }}>Project Details</h3>
+                  <button
+                    onClick={() => setShowProjectFormInModal(false)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#6b7280',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                
+                <form onSubmit={(e) => {
+                  e.preventDefault()
+                  createProjectMutation.mutate(projectFormData)
+                }}>
+                  <div className="form-group">
+                    <label>Project Name *</label>
+                    <input
+                      type="text"
+                      value={projectFormData.name}
+                      onChange={(e) => setProjectFormData({...projectFormData, name: e.target.value})}
+                      required
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>
+                      Description *
+                      <span style={{ fontSize: '0.85rem', color: '#6c757d', fontWeight: 'normal', marginLeft: '0.5rem' }}>
+                        ({countWords(projectFormData.description)} / 50 words)
+                      </span>
+                    </label>
+                    <textarea
+                      value={projectFormData.description}
+                      onChange={(e) => {
+                        const newValue = e.target.value
+                        const wordCount = countWords(newValue)
+                        // Limit to 50 words
+                        if (wordCount <= 50) {
+                          setProjectFormData({...projectFormData, description: newValue})
+                        } else {
+                          // If over limit, truncate to 50 words
+                          const limited = limitToWords(newValue, 50)
+                          setProjectFormData({...projectFormData, description: limited})
+                        }
+                      }}
+                      required
+                      rows={4}
+                      placeholder="Describe your project, what problem it solves, and who it serves..."
+                      style={{ fontFamily: 'inherit', resize: 'vertical' }}
+                    />
+                    {countWords(projectFormData.description) > 0 && countWords(projectFormData.description) < 30 && (
+                      <div style={{ 
+                        marginTop: '0.5rem', 
+                        padding: '0.5rem', 
+                        backgroundColor: '#fff3cd', 
+                        border: '1px solid #ffc107', 
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        color: '#856404'
+                      }}>
+                        <strong>Note:</strong> Your description is quite short. Adding more detail (aim for 30-50 words) will help us provide more accurate grant assessments.
+                      </div>
+                    )}
+                    {countWords(projectFormData.description) >= 50 && (
+                      <div style={{ 
+                        marginTop: '0.5rem', 
+                        padding: '0.5rem', 
+                        backgroundColor: '#fee2e2', 
+                        border: '1px solid #ef4444', 
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        color: '#991b1b'
+                      }}>
+                        <strong>Limit reached:</strong> Maximum of 50 words. Your description has been truncated.
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Stage *</label>
+                    <select
+                      value={projectFormData.stage}
+                      onChange={(e) => setProjectFormData({...projectFormData, stage: e.target.value})}
+                      required
+                    >
+                      <option value="">Select stage...</option>
+                      <option value="Idea">Idea</option>
+                      <option value="Early Development">Early Development</option>
+                      <option value="Pilot">Pilot</option>
+                      <option value="Established">Established</option>
+                      <option value="Scaling">Scaling</option>
+                    </select>
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Funding Need *</label>
+                    <select
+                      value={projectFormData.funding_need}
+                      onChange={(e) => setProjectFormData({...projectFormData, funding_need: e.target.value})}
+                      required
+                    >
+                      <option value="">Select funding need...</option>
+                      <option value="Seed funding">Seed funding</option>
+                      <option value="Growth capital">Growth capital</option>
+                      <option value="Operational support">Operational support</option>
+                      <option value="Research funding">Research funding</option>
+                      <option value="Program expansion">Program expansion</option>
+                    </select>
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Urgency</label>
+                    <select
+                      value={projectFormData.urgency}
+                      onChange={(e) => setProjectFormData({...projectFormData, urgency: e.target.value})}
+                    >
+                      <option value="low">Low - Flexible timeline</option>
+                      <option value="moderate">Moderate - Some time pressure</option>
+                      <option value="high">High - Urgent need</option>
+                    </select>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      style={{ flex: 1 }}
+                      disabled={createProjectMutation.isPending || isAssessing}
+                    >
+                      {createProjectMutation.isPending || isAssessing ? 'Creating...' : 'Create Project & Assess Grant'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProjectFormInModal(false)
+                        // Use grant data if it was edited - filter out empty strings
+                        const grantDataToUse = showGrantDataForm ? (() => {
+                          const data = {}
+                          if (grantDataForm.name?.trim() || pendingGrantName?.trim()) {
+                            data.grant_name = (grantDataForm.name || pendingGrantName).trim()
+                          }
+                          if (grantDataForm.description?.trim()) {
+                            data.grant_description = grantDataForm.description.trim()
+                          }
+                          if (grantDataForm.deadline?.trim()) {
+                            data.grant_deadline = grantDataForm.deadline.trim()
+                          }
+                          if (grantDataForm.decision_date?.trim()) {
+                            data.grant_decision_date = grantDataForm.decision_date.trim()
+                          }
+                          if (grantDataForm.award_amount?.trim()) {
+                            data.grant_award_amount = grantDataForm.award_amount.trim()
+                          }
+                          if (grantDataForm.award_structure?.trim()) {
+                            data.grant_award_structure = grantDataForm.award_structure.trim()
+                          }
+                          if (grantDataForm.eligibility?.trim()) {
+                            data.grant_eligibility = grantDataForm.eligibility.trim()
+                          }
+                          if (grantDataForm.preferred_applicants?.trim()) {
+                            data.grant_preferred_applicants = grantDataForm.preferred_applicants.trim()
+                          }
+                          if (grantDataForm.application_requirements?.trim()) {
+                            const items = grantDataForm.application_requirements.split('\n').filter(l => l.trim())
+                            if (items.length > 0) {
+                              data.grant_application_requirements = items
+                            }
+                          }
+                          if (grantDataForm.reporting_requirements?.trim()) {
+                            data.grant_reporting_requirements = grantDataForm.reporting_requirements.trim()
+                          }
+                          if (grantDataForm.restrictions?.trim()) {
+                            const items = grantDataForm.restrictions.split('\n').filter(l => l.trim())
+                            if (items.length > 0) {
+                              data.grant_restrictions = items
+                            }
+                          }
+                          if (grantDataForm.mission?.trim()) {
+                            data.grant_mission = grantDataForm.mission.trim()
+                          }
+                          return Object.keys(data).length > 0 ? data : null
+                        })() : null
+                        handleCreateEvaluationFromPending(null, grantDataToUse)
+                      }}
+                      className="btn btn-secondary"
+                      style={{ flex: 1 }}
+                      disabled={createProjectMutation.isPending || isAssessing}
+                    >
+                      Skip Project & Assess
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
